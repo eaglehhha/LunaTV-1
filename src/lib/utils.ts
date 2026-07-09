@@ -81,16 +81,16 @@ export {
 };
 
 function getBangumiImageProxyConfig(): {
-  proxyType: 'server' | 'cmliussss' | 'custom' | 'direct';
+  proxyType: 'server' | 'cmliussss' | 'corsapi' | 'custom' | 'direct';
   proxyUrl: string;
 } {
-  let bangumiImageProxyType: 'server' | 'cmliussss' | 'custom' | 'direct' = 'server';
+  let bangumiImageProxyType: 'server' | 'cmliussss' | 'corsapi' | 'custom' | 'direct' = 'server';
   let bangumiImageProxyUrl = '';
 
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     const storedType = localStorage.getItem('bangumiImageProxyType');
     const runtimeType = (window as any).RUNTIME_CONFIG?.BANGUMI_IMAGE_PROXY_TYPE;
-    bangumiImageProxyType = (storedType || runtimeType || 'server') as 'server' | 'cmliussss' | 'custom' | 'direct';
+    bangumiImageProxyType = (storedType || runtimeType || 'server') as 'server' | 'cmliussss' | 'corsapi' | 'custom' | 'direct';
     bangumiImageProxyUrl =
       localStorage.getItem('bangumiImageProxyUrl') ||
       (window as any).RUNTIME_CONFIG?.BANGUMI_IMAGE_PROXY ||
@@ -159,6 +159,10 @@ export function processImageUrl(originalUrl: string): string {
     switch (bangumiProxyType) {
       case 'cmliussss':
         return originalUrl.replace(/lain\.bgm\.tv/g, 'img.doubanio.cmliussss.net');
+      case 'corsapi': {
+        const base = bangumiProxyUrl || 'https://corsapi.smone.workers.dev';
+        return `${base.replace(/\/$/, '')}/?url=${encodeURIComponent(originalUrl)}`;
+      }
       case 'custom':
         if (bangumiProxyUrl) return `${bangumiProxyUrl}${encodeURIComponent(originalUrl)}`;
         return `/api/proxy/logo?url=${encodeURIComponent(originalUrl)}`;
