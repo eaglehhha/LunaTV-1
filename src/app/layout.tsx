@@ -81,6 +81,8 @@ export default async function RootLayout({
   let customAdFilterVersion = 0;
   let aiRecommendEnabled = false;
   let embyEnabled = false;
+  let videoProxyEnabled = false;
+  let videoProxyUrl = '';
   let customCategories = [] as {
     name: string;
     type: 'movie' | 'tv';
@@ -113,6 +115,8 @@ export default async function RootLayout({
       config.EmbyConfig.Sources.length > 0 &&
       config.EmbyConfig.Sources.some(s => s.enabled && s.ServerURL)
     );
+    videoProxyEnabled = config.VideoProxyConfig?.enabled ?? false;
+    videoProxyUrl = config.VideoProxyConfig?.proxyUrl || '';
   }
 
   // 将运行时配置注入到全局 window 对象，供客户端在运行时读取
@@ -132,6 +136,8 @@ export default async function RootLayout({
     AI_RECOMMEND_ENABLED: aiRecommendEnabled,
     EMBY_ENABLED: embyEnabled,
     PRIVATE_LIBRARY_ENABLED: embyEnabled,
+    VIDEO_PROXY_ENABLED: videoProxyEnabled,
+    VIDEO_PROXY_URL: videoProxyUrl,
     // 禁用预告片：Vercel 自动检测，或用户手动设置 DISABLE_HERO_TRAILER=true
     DISABLE_HERO_TRAILER: process.env.VERCEL === '1' || process.env.DISABLE_HERO_TRAILER === 'true',
   };
