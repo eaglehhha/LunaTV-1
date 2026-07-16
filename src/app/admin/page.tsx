@@ -4009,7 +4009,7 @@ const VideoSourceConfig = ({
               Cloudflare Worker 代理加速
             </h3>
             <p className='text-sm text-gray-600 dark:text-gray-400 mt-1'>
-              为网页播放启用全球CDN加速，同时加速视频源API访问和视频/m3u8播放流
+              为网页播放启用全球CDN加速，同时加速视频源API访问、视频/m3u8播放流，以及所有 TMDB 接口和图片请求（演员搜索、首页 Hero 横幅背景图/Logo、播放页背景图等）
             </p>
           </div>
           <label className='relative inline-flex items-center cursor-pointer'>
@@ -6359,7 +6359,7 @@ const SiteConfigComponent = ({ config, refreshConfig }: { config: AdminConfig | 
             className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
           />
           <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-            请在 <a href='https://www.themoviedb.org/settings/api' target='_blank' rel='noopener noreferrer' className='text-blue-500 hover:text-blue-600'>TMDB 官网</a> 申请免费的 API Key
+            请在 <a href='https://www.themoviedb.org/settings/api' target='_blank' rel='noopener noreferrer' className='text-blue-500 hover:text-blue-600'>TMDB 官网</a> 申请免费的 API Key。国内直连 TMDB 可能较慢或不稳定，可在「视频源配置」标签下的「Cloudflare Worker 代理加速」中启用后统一走代理转发
           </p>
         </div>
 
