@@ -80,32 +80,97 @@ export async function POST(req: NextRequest) {
     // 开始导入数据 - 先清空现有数据
     await db.clearAllData();
 
-    // 导入管理员配置
-    importData.data.adminConfig = configSelfCheck(importData.data.adminConfig);
-    await db.saveAdminConfig(importData.data.adminConfig);
-    await setCachedConfig(importData.data.adminConfig);
-
-    // 导入用户数据
+    // 🔥 修复：先注册所有用户，然后再进行配置自检查
+    // 步骤1：重新注册所有用户（包含完整的V2信息）
     const userData = importData.data.userData;
     for (const username in userData) {
       const user = userData[username];
 
-      // 重新注册用户（包含密码）
-      if (user.password) {
+      // 优先使用 V2 用户信息创建用户
+      if (user.userInfoV2) {
+        console.log(`创建 V2 用户: ${username}`, user.userInfoV2);
+        await db.createUserV2(
+          username,
+          user.userInfoV2.password || user.password || '', // 优先使用V2加密密码
+          user.userInfoV2.role || 'user',
+          user.userInfoV2.tags,
+          user.userInfoV2.oidcSub, // 恢复 OIDC 绑定
+          user.userInfoV2.enabledApis
+        );
+      } else if (user.password) {
+        // 兼容旧版本备份（V1用户）
+        console.log(`创建 V1 用户: ${username}`);
         await db.registerUser(username, user.password);
       }
+    }
 
-      // 导入播放记录
+    // 步骤2：导入管理员配置并进行自检查
+    // 此时数据库中已有用户，configSelfCheck 可以正确获取用户列表并保留备份中的用户配置
+    importData.data.adminConfig = await configSelfCheck(importData.data.adminConfig);
+    await db.saveAdminConfig(importData.data.adminConfig);
+    await setCachedConfig(importData.data.adminConfig);
+
+    // 步骤3：导入用户的其他数据（播放记录、收藏、登录统计等）
+    for (const username in userData) {
+      const user = userData[username];
+
+      // 导入播放记录（带数据升级）
       if (user.playRecords) {
         for (const [key, record] of Object.entries(user.playRecords)) {
-          await (db as any).storage.setPlayRecord(username, key, record);
+          // 数据升级：确保所有必需字段存在
+          const recordData = record as any;
+          const upgradedRecord = {
+            ...recordData,
+            // 确保 type 字段存在（旧版本可能没有）
+            type: recordData.type || undefined,
+            // 确保 douban_id 字段存在
+            douban_id: recordData.douban_id || undefined,
+            // 确保 remarks 字段存在
+            remarks: recordData.remarks || undefined,
+            // 确保 original_episodes 字段存在
+            original_episodes: recordData.original_episodes || undefined,
+          };
+          await (db as any).storage.setPlayRecord(username, key, upgradedRecord);
         }
       }
 
-      // 导入收藏夹
+      // 导入收藏夹（带数据升级）
       if (user.favorites) {
         for (const [key, favorite] of Object.entries(user.favorites)) {
-          await (db as any).storage.setFavorite(username, key, favorite);
+          // 数据升级：确保所有必需字段存在
+          const favoriteData = favorite as any;
+          const upgradedFavorite = {
+            ...favoriteData,
+            // 确保 origin 字段存在
+            origin: favoriteData.origin || 'vod',
+            // 确保 type 字段存在
+            type: favoriteData.type || undefined,
+            // 确保 releaseDate 字段存在
+            releaseDate: favoriteData.releaseDate || undefined,
+            // 确保 remarks 字段存在
+            remarks: favoriteData.remarks || undefined,
+          };
+          await (db as any).storage.setFavorite(username, key, upgradedFavorite);
+        }
+      }
+
+      // 导入想看（即将上映提醒）（带数据升级）
+      if (user.reminders) {
+        for (const [key, reminder] of Object.entries(user.reminders)) {
+          // 数据升级：确保所有必需字段存在
+          const reminderData = reminder as any;
+          const upgradedReminder = {
+            ...reminderData,
+            // 确保 origin 字段存在
+            origin: reminderData.origin || 'vod',
+            // 确保 type 字段存在
+            type: reminderData.type || undefined,
+            // 确保 releaseDate 字段存在（提醒必须有上映日期）
+            releaseDate: reminderData.releaseDate || '',
+            // 确保 remarks 字段存在
+            remarks: reminderData.remarks || undefined,
+          };
+          await (db as any).storage.setReminder(username, key, upgradedReminder);
         }
       }
 
@@ -123,6 +188,21 @@ export async function POST(req: NextRequest) {
           if (source && id) {
             await db.setSkipConfig(username, source, id, skipConfig as any);
           }
+        }
+      }
+
+      // 导入登录统计（恢复 loginCount, firstLoginTime, lastLoginTime）
+      if (user.loginStats) {
+        try {
+          const storage = (db as any).storage;
+          if (storage && typeof storage.client?.set === 'function') {
+            const loginStatsKey = `user_login_stats:${username}`;
+            const statsData = JSON.stringify(user.loginStats);
+            await storage.client.set(loginStatsKey, statsData);
+            console.log(`已恢复用户 ${username} 的登录统计:`, user.loginStats);
+          }
+        } catch (error) {
+          console.error(`恢复用户 ${username} 登录统计失败:`, error);
         }
       }
     }

@@ -3,8 +3,13 @@
 import { NextResponse } from "next/server";
 
 import { getConfig } from "@/lib/config";
+import { readArrayBufferLimited } from "@/lib/proxy-security";
+import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 
 export const runtime = 'nodejs';
+
+// AES 密钥文件正常只有 16 字节，给个宽松上限防御异常上游
+const MAX_KEY_BYTES = 1 * 1024 * 1024; // 1MB
 
 // Key 缓存管理
 const keyCache = new Map<string, { data: ArrayBuffer; timestamp: number; etag?: string }>();
@@ -81,12 +86,16 @@ export async function GET(request: Request) {
   }
 
   const config = await getConfig();
-  const liveSource = config.LiveConfig?.find((s: any) => s.key === source);
-  if (!liveSource) {
-    keyStats.errors++;
-    return NextResponse.json({ error: 'Source not found' }, { status: 404 });
+  // 点播场景不携带 moontv-source（该参数只用于直播源的 UA 定制），此时使用默认浏览器 UA。
+  let ua = DEFAULT_USER_AGENT;
+  if (source) {
+    const liveSource = config.LiveConfig?.find((s: any) => s.key === source);
+    if (!liveSource) {
+      keyStats.errors++;
+      return NextResponse.json({ error: 'Source not found' }, { status: 404 });
+    }
+    ua = liveSource.ua || ua;
   }
-  const ua = liveSource.ua || 'AptvPlayer/1.4.10';
 
   const decodedUrl = decodeURIComponent(url);
   const cacheKey = `${source}-${decodedUrl}`;
@@ -160,12 +169,20 @@ export async function GET(request: Request) {
 
     if (!response.ok) {
       keyStats.errors++;
-      return NextResponse.json({ 
-        error: `Failed to fetch key: ${response.status} ${response.statusText}` 
+      // 改进错误消息，对 401/403 提供更友好的提示
+      const upstreamStatus = response.status;
+      let errorMessage = `Failed to fetch key: ${response.status} ${response.statusText}`;
+
+      if (upstreamStatus === 401 || upstreamStatus === 403) {
+        errorMessage = `上游资源拒绝访问（${upstreamStatus}），已尝试自动补齐鉴权和防盗链请求头`;
+      }
+
+      return NextResponse.json({
+        error: errorMessage
       }, { status: response.status >= 500 ? 500 : response.status });
     }
     
-    const keyData = await response.arrayBuffer();
+    const keyData = await readArrayBufferLimited(response, MAX_KEY_BYTES);
     const etag = response.headers.get('ETag');
     
     // 缓存 key 数据
@@ -191,10 +208,12 @@ export async function GET(request: Request) {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
         'Access-Control-Allow-Headers': 'Content-Type, Range, Origin, Accept, User-Agent',
+        'Access-Control-Expose-Headers': 'Content-Length, X-Cache, X-Upstream-Url',
         'Cache-Control': 'public, max-age=300, s-maxage=300',
         'X-Cache': 'MISS',
         'Content-Length': keyData.byteLength.toString(),
-        ...(etag && { 'ETag': etag })
+        ...(etag && { 'ETag': etag }),
+        ...(response.url && { 'X-Upstream-Url': response.url })
       },
     });
     

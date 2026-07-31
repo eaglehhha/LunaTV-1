@@ -1,3 +1,5 @@
+'use client';
+
 import { BackButton } from './BackButton';
 import MobileBottomNav from './MobileBottomNav';
 import MobileHeader from './MobileHeader';
@@ -8,9 +10,21 @@ import { UserMenu } from './UserMenu';
 interface PageLayoutProps {
   children: React.ReactNode;
   activePath?: string;
+  useModernNav?: boolean;
 }
 
-const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
+const PageLayout = ({
+  children,
+  activePath = '/',
+  useModernNav = true,
+}: PageLayoutProps) => {
+  if (useModernNav) {
+    // Modern layout - 只返回内容，导航栏由 NavigationShell 处理
+    // translate="no" 阻止浏览器翻译插件修改 DOM 导致 React reconciler 崩溃
+    return <div translate="no">{children}</div>;
+  }
+
+  // Legacy Sidebar Layout (原来的设计)
   return (
     <div className='w-full min-h-screen'>
       {/* 移动端头部 */}
@@ -32,7 +46,7 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
             </div>
           )}
 
-          {/* 桌面端顶部按钮 */}
+          {/* 桌面端顶部按钮 - Theme Toggle & User Menu */}
           <div className='absolute top-2 right-4 z-20 hidden md:flex items-center gap-2'>
             <ThemeToggle />
             <UserMenu />
@@ -42,7 +56,8 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
           <main
             className='flex-1 md:min-h-0 mb-14 md:mb-0 md:mt-0 mt-12'
             style={{
-              paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+              // 悬浮胶囊导航栏高度约 56px + 底部 1rem 间距 + 安全区
+              paddingBottom: 'calc(5.5rem + env(safe-area-inset-bottom))',
             }}
           >
             {children}

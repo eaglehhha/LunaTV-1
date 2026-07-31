@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 interface SearchSuggestionsProps {
   query: string;
@@ -23,85 +24,51 @@ export default function SearchSuggestions({
   onClose,
   onEnterKey,
 }: SearchSuggestionsProps) {
-  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 防抖定时器
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // 用于中止旧请求
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  const fetchSuggestionsFromAPI = useCallback(async (searchQuery: string) => {
-    // 每次请求前取消上一次的请求
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    try {
-      const response = await fetch(
-        `/api/search/suggestions?q=${encodeURIComponent(searchQuery)}`,
-        {
-          signal: controller.signal,
-        }
-      );
-      if (response.ok) {
-        const data = await response.json();
-        const apiSuggestions = data.suggestions.map(
-          (item: { text: string }) => ({
-            text: item.text,
-            type: 'related' as const,
-          })
-        );
-        setSuggestions(apiSuggestions);
-      }
-    } catch (err: unknown) {
-      // 类型保护判断 err 是否是 Error 类型
-      if (err instanceof Error) {
-        if (err.name !== 'AbortError') {
-          // 不是取消请求导致的错误才清空
-          setSuggestions([]);
-        }
-      } else {
-        // 如果 err 不是 Error 类型，也清空提示
-        setSuggestions([]);
-      }
-    }
-  }, []);
-
-  // 防抖触发
-  const debouncedFetchSuggestions = useCallback(
-    (searchQuery: string) => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-      }
-      debounceTimer.current = setTimeout(() => {
-        if (searchQuery.trim() && isVisible) {
-          fetchSuggestionsFromAPI(searchQuery);
-        } else {
-          setSuggestions([]);
-        }
-      }, 300); //300ms
-    },
-    [isVisible, fetchSuggestionsFromAPI]
-  );
+  // 防抖：延迟300ms后更新debouncedQuery
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    if (!query.trim() || !isVisible) {
-      setSuggestions([]);
-      return;
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
     }
-    debouncedFetchSuggestions(query);
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 300);
 
-    // 清理定时器
     return () => {
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
       }
     };
-  }, [query, isVisible, debouncedFetchSuggestions]);
+  }, [query]);
+
+  // 🚀 TanStack Query - 搜索建议
+  // 参考源码模式：useQuery with enabled option + 缓存搜索结果
+  // TanStack Query 内置了请求取消（AbortController），无需手动管理
+  const { data: suggestions = [] } = useQuery<SuggestionItem[]>({
+    queryKey: ['searchSuggestions', debouncedQuery],
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/search/suggestions?q=${encodeURIComponent(debouncedQuery.trim())}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        return data.suggestions.map(
+          (item: { text: string }) => ({
+            text: item.text,
+            type: 'related' as const,
+          })
+        );
+      }
+      return [];
+    },
+    enabled: isVisible && debouncedQuery.trim().length > 0,
+    staleTime: 5 * 60 * 1000, // 5 minutes - cache suggestion results
+    gcTime: 10 * 60 * 1000,
+  });
 
   // 点击外部关闭
   useEffect(() => {
@@ -148,7 +115,7 @@ export default function SearchSuggestions({
   return (
     <div
       ref={containerRef}
-      className='absolute top-full left-0 right-0 z-[600] mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto'
+      className='absolute top-full left-0 right-0 z-600 mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto'
     >
       {suggestions.map((suggestion) => (
         <button

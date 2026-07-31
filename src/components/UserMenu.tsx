@@ -3,25 +3,47 @@
 'use client';
 
 import {
+  BarChart3,
+  Bell,
+  Calendar,
   Check,
-  ChevronDown,
-  ExternalLink,
+  Download,
+  Heart,
   KeyRound,
   LogOut,
+  PlayCircle,
   Settings,
   Shield,
+  Tv,
   User,
+  Users,
   X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { CURRENT_VERSION } from '@/lib/version';
 import { checkForUpdates, UpdateStatus } from '@/lib/version_check';
+import type { PlayRecord, Favorite } from '@/lib/types';
+
+import { useDownload } from '@/contexts/DownloadContext';
 
 import { VersionPanel } from './VersionPanel';
+import VideoCard from './VideoCard';
+import { SettingsPanel } from './SettingsPanel';
+import {
+  useWatchRoomConfigQuery,
+  useServerConfigQuery,
+  useVersionCheckQuery,
+  usePlayRecordsQuery,
+  useFavoritesQuery,
+  useChangePasswordMutation,
+  useInvalidateUserMenuData,
+} from '@/hooks/useUserMenuQueries';
+import { useWatchingUpdatesQuery, useRefreshWatchingUpdates } from '@/hooks/useWatchingUpdates';
 
 interface AuthInfo {
   username?: string;
@@ -30,17 +52,71 @@ interface AuthInfo {
 
 export const UserMenu: React.FC = () => {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
+  const [isWatchingUpdatesOpen, setIsWatchingUpdatesOpen] = useState(false);
+  const [isContinueWatchingOpen, setIsContinueWatchingOpen] = useState(false);
+  const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [authInfo, setAuthInfo] = useState<AuthInfo | null>(null);
-  const [storageType, setStorageType] = useState<string>('localstorage');
+  const [storageType, setStorageType] = useState<string>(() => {
+    // 🔧 优化：直接从 RUNTIME_CONFIG 读取初始值，避免默认值导致的多次渲染
+    if (typeof window !== 'undefined') {
+      return (window as any).RUNTIME_CONFIG?.STORAGE_TYPE || 'localstorage';
+    }
+    return 'localstorage';
+  });
   const [mounted, setMounted] = useState(false);
+  const [dismissedReleases, setDismissedReleases] = useState<Set<string>>(() => {
+    // 从localStorage加载已忽略的新上映列表
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('moontv_dismissed_releases');
+        return saved ? new Set(JSON.parse(saved)) : new Set();
+      } catch {
+        return new Set();
+      }
+    }
+    return new Set();
+  });
+
+  // 🚀 TanStack Query - 追番更新
+  const showWatchingUpdates = authInfo?.username && storageType !== 'localstorage';
+  const { data: watchingUpdates } = useWatchingUpdatesQuery({
+    enabled: showWatchingUpdates, // 页面加载时就检查（会使用缓存）
+  });
+  const refreshWatchingUpdates = useRefreshWatchingUpdates();
+
+  // 检查是否有实际更新（用于显示红点）- 包括新剧集更新和新上映
+  // 过滤掉已忽略的新上映
+  const hasActualUpdates = watchingUpdates && (
+    (watchingUpdates.updatedCount || 0) > 0 ||
+    watchingUpdates.updatedSeries.filter(
+      series => series.hasNewRelease && !dismissedReleases.has(`${series.sourceKey}+${series.videoId}`)
+    ).length > 0
+  );
+
+  // 计算更新数量（新剧集更新 + 未忽略的新上映）
+  const totalUpdates = (watchingUpdates?.updatedCount || 0) +
+    (watchingUpdates?.updatedSeries.filter(
+      series => series.hasNewRelease && !dismissedReleases.has(`${series.sourceKey}+${series.videoId}`)
+    ).length || 0);
+
+  // 🚀 TanStack Query - 观影室配置
+  const { data: showWatchRoom = false } = useWatchRoomConfigQuery();
+  // 🚀 TanStack Query - 下载功能配置
+  const { data: serverConfig } = useServerConfigQuery();
+  const downloadEnabled = serverConfig?.downloadEnabled ?? true;
+  const { tasks, setShowDownloadPanel } = useDownload();
+
+  // 🚀 TanStack Query - 数据失效工具
+  const { invalidatePlayRecords } = useInvalidateUserMenuData();
 
   // Body 滚动锁定 - 使用 overflow 方式避免布局问题
   useEffect(() => {
-    if (isSettingsOpen || isChangePasswordOpen) {
+    if (isSettingsOpen || isChangePasswordOpen || isWatchingUpdatesOpen || isContinueWatchingOpen || isFavoritesOpen) {
       const body = document.body;
       const html = document.documentElement;
 
@@ -59,45 +135,18 @@ export const UserMenu: React.FC = () => {
         html.style.overflow = originalHtmlOverflow;
       };
     }
-  }, [isSettingsOpen, isChangePasswordOpen]);
+  }, [isSettingsOpen, isChangePasswordOpen, isWatchingUpdatesOpen, isContinueWatchingOpen, isFavoritesOpen]);
 
-  // 设置相关状态
-  const [defaultAggregateSearch, setDefaultAggregateSearch] = useState(true);
-  const [doubanProxyUrl, setDoubanProxyUrl] = useState('');
-  const [enableOptimization, setEnableOptimization] = useState(false);
-  const [fluidSearch, setFluidSearch] = useState(true);
-  const [liveDirectConnect, setLiveDirectConnect] = useState(false);
-  const [doubanDataSource, setDoubanDataSource] = useState('direct');
-  const [doubanImageProxyType, setDoubanImageProxyType] = useState('direct');
-  const [doubanImageProxyUrl, setDoubanImageProxyUrl] = useState('');
-  const [isDoubanDropdownOpen, setIsDoubanDropdownOpen] = useState(false);
-  const [isDoubanImageProxyDropdownOpen, setIsDoubanImageProxyDropdownOpen] =
-    useState(false);
-
-  // 豆瓣数据源选项
-  const doubanDataSourceOptions = [
-    { value: 'direct', label: '直连（服务器直接请求豆瓣）' },
-    { value: 'cors-proxy-zwei', label: 'Cors Proxy By Zwei' },
-    {
-      value: 'cmliussss-cdn-tencent',
-      label: '豆瓣 CDN By CMLiussss（腾讯云）',
-    },
-    { value: 'cmliussss-cdn-ali', label: '豆瓣 CDN By CMLiussss（阿里云）' },
-    { value: 'custom', label: '自定义代理' },
-  ];
-
-  // 豆瓣图片代理选项
-  const doubanImageProxyTypeOptions = [
-    { value: 'direct', label: '直连（浏览器直接请求豆瓣）' },
-    { value: 'server', label: '服务器代理（由服务器代理请求豆瓣）' },
-    { value: 'img3', label: '豆瓣官方精品 CDN（阿里云）' },
-    {
-      value: 'cmliussss-cdn-tencent',
-      label: '豆瓣 CDN By CMLiussss（腾讯云）',
-    },
-    { value: 'cmliussss-cdn-ali', label: '豆瓣 CDN By CMLiussss（阿里云）' },
-    { value: 'custom', label: '自定义代理' },
-  ];
+  // 数据查询条件（从 localStorage 读初始值，供 playRecords query 用）
+  const [continueWatchingMinProgress] = useState(() =>
+    typeof window !== 'undefined' ? (Number(localStorage.getItem('continueWatchingMinProgress')) || 5) : 5
+  );
+  const [continueWatchingMaxProgress] = useState(() =>
+    typeof window !== 'undefined' ? (Number(localStorage.getItem('continueWatchingMaxProgress')) || 100) : 100
+  );
+  const [enableContinueWatchingFilter] = useState(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('enableContinueWatchingFilter') === 'true' : false
+  );
 
   // 修改密码相关状态
   const [newPassword, setNewPassword] = useState('');
@@ -105,152 +154,55 @@ export const UserMenu: React.FC = () => {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState('');
 
-  // 版本检查相关状态
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
-  const [isChecking, setIsChecking] = useState(true);
+  // 🚀 TanStack Query - 版本检查
+  const { data: updateStatus = null, isLoading: isChecking } = useVersionCheckQuery();
+
+  // 数据查询条件
+  const dataQueryEnabled = typeof window !== 'undefined' && !!authInfo?.username && storageType !== 'localstorage';
+
+  // 🚀 TanStack Query - 播放记录
+  const { data: playRecords = [] } = usePlayRecordsQuery({
+    enabled: dataQueryEnabled,
+    enableFilter: enableContinueWatchingFilter,
+    minProgress: continueWatchingMinProgress,
+    maxProgress: continueWatchingMaxProgress,
+  });
+
+  // 🚀 TanStack Query - 收藏列表
+  const { data: favorites = [] } = useFavoritesQuery({
+    enabled: dataQueryEnabled,
+  });
+
+  // 🚀 TanStack Query - 修改密码
+  const changePasswordMutation = useChangePasswordMutation();
 
   // 确保组件已挂载
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // 获取认证信息和存储类型
+  // 获取认证信息
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const auth = getAuthInfoFromBrowserCookie();
       setAuthInfo(auth);
-
-      const type =
-        (window as any).RUNTIME_CONFIG?.STORAGE_TYPE || 'localstorage';
-      setStorageType(type);
     }
   }, []);
 
-  // 从 localStorage 读取设置
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedAggregateSearch = localStorage.getItem(
-        'defaultAggregateSearch'
-      );
-      if (savedAggregateSearch !== null) {
-        setDefaultAggregateSearch(JSON.parse(savedAggregateSearch));
-      }
+  // 🚀 观影室配置和下载配置由 TanStack Query 自动管理
 
-      const savedDoubanDataSource = localStorage.getItem('doubanDataSource');
-      const defaultDoubanProxyType =
-        (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY_TYPE || 'direct';
-      if (savedDoubanDataSource !== null) {
-        setDoubanDataSource(savedDoubanDataSource);
-      } else if (defaultDoubanProxyType) {
-        setDoubanDataSource(defaultDoubanProxyType);
-      }
+  // 🚀 版本检查由 TanStack Query 自动管理
 
-      const savedDoubanProxyUrl = localStorage.getItem('doubanProxyUrl');
-      const defaultDoubanProxy =
-        (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY || '';
-      if (savedDoubanProxyUrl !== null) {
-        setDoubanProxyUrl(savedDoubanProxyUrl);
-      } else if (defaultDoubanProxy) {
-        setDoubanProxyUrl(defaultDoubanProxy);
-      }
 
-      const savedDoubanImageProxyType = localStorage.getItem(
-        'doubanImageProxyType'
-      );
-      const defaultDoubanImageProxyType =
-        (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY_TYPE || 'direct';
-      if (savedDoubanImageProxyType !== null) {
-        setDoubanImageProxyType(savedDoubanImageProxyType);
-      } else if (defaultDoubanImageProxyType) {
-        setDoubanImageProxyType(defaultDoubanImageProxyType);
-      }
+  const handleMenuClick = async () => {
+    const willOpen = !isOpen;
+    setIsOpen(willOpen);
 
-      const savedDoubanImageProxyUrl = localStorage.getItem(
-        'doubanImageProxyUrl'
-      );
-      const defaultDoubanImageProxyUrl =
-        (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY || '';
-      if (savedDoubanImageProxyUrl !== null) {
-        setDoubanImageProxyUrl(savedDoubanImageProxyUrl);
-      } else if (defaultDoubanImageProxyUrl) {
-        setDoubanImageProxyUrl(defaultDoubanImageProxyUrl);
-      }
-
-      const savedEnableOptimization =
-        localStorage.getItem('enableOptimization');
-      if (savedEnableOptimization !== null) {
-        setEnableOptimization(JSON.parse(savedEnableOptimization));
-      }
-
-      const savedFluidSearch = localStorage.getItem('fluidSearch');
-      const defaultFluidSearch =
-        (window as any).RUNTIME_CONFIG?.FLUID_SEARCH !== false;
-      if (savedFluidSearch !== null) {
-        setFluidSearch(JSON.parse(savedFluidSearch));
-      } else if (defaultFluidSearch !== undefined) {
-        setFluidSearch(defaultFluidSearch);
-      }
-
-      const savedLiveDirectConnect = localStorage.getItem('liveDirectConnect');
-      if (savedLiveDirectConnect !== null) {
-        setLiveDirectConnect(JSON.parse(savedLiveDirectConnect));
-      }
+    // 如果是打开菜单，强制刷新追番更新
+    if (willOpen && showWatchingUpdates) {
+      console.log('打开菜单时强制刷新追番更新...');
+      refreshWatchingUpdates();
     }
-  }, []);
-
-  // 版本检查
-  useEffect(() => {
-    const checkUpdate = async () => {
-      try {
-        const status = await checkForUpdates();
-        setUpdateStatus(status);
-      } catch (error) {
-        console.warn('版本检查失败:', error);
-      } finally {
-        setIsChecking(false);
-      }
-    };
-
-    checkUpdate();
-  }, []);
-
-  // 点击外部区域关闭下拉框
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (isDoubanDropdownOpen) {
-        const target = event.target as Element;
-        if (!target.closest('[data-dropdown="douban-datasource"]')) {
-          setIsDoubanDropdownOpen(false);
-        }
-      }
-    };
-
-    if (isDoubanDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () =>
-        document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isDoubanDropdownOpen]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (isDoubanImageProxyDropdownOpen) {
-        const target = event.target as Element;
-        if (!target.closest('[data-dropdown="douban-image-proxy"]')) {
-          setIsDoubanImageProxyDropdownOpen(false);
-        }
-      }
-    };
-
-    if (isDoubanImageProxyDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () =>
-        document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isDoubanImageProxyDropdownOpen]);
-
-  const handleMenuClick = () => {
-    setIsOpen(!isOpen);
   };
 
   const handleCloseMenu = () => {
@@ -270,7 +222,101 @@ export const UserMenu: React.FC = () => {
   };
 
   const handleAdminPanel = () => {
+    setIsOpen(false);
     router.push('/admin');
+  };
+
+  const handlePlayStats = () => {
+    setIsOpen(false);
+    router.push('/play-stats');
+  };
+
+  const handleTVBoxConfig = () => {
+    setIsOpen(false);
+    router.push('/tvbox');
+  };
+
+  const handleWatchRoom = () => {
+    setIsOpen(false);
+    router.push('/watch-room');
+  };
+
+  const handleReleaseCalendar = () => {
+    setIsOpen(false);
+    router.push('/release-calendar');
+  };
+
+  const handleWatchingUpdates = () => {
+    setIsOpen(false);
+    setIsWatchingUpdatesOpen(true);
+    // 注意：不在这里标记为已读，只有用户点击"不再提醒"时才标记
+  };
+
+  const handleCloseWatchingUpdates = () => {
+    setIsWatchingUpdatesOpen(false);
+  };
+
+  const handleContinueWatching = () => {
+    setIsOpen(false);
+    setIsContinueWatchingOpen(true);
+  };
+
+  const handleCloseContinueWatching = () => {
+    setIsContinueWatchingOpen(false);
+  };
+
+  const handleFavorites = () => {
+    setIsOpen(false);
+    setIsFavoritesOpen(true);
+  };
+
+  const handleCloseFavorites = () => {
+    setIsFavoritesOpen(false);
+  };
+
+  // 忽略新上映提醒
+  const handleDismissRelease = (sourceKey: string, videoId: string) => {
+    const key = `${sourceKey}+${videoId}`;
+    const newDismissed = new Set(dismissedReleases);
+    newDismissed.add(key);
+    setDismissedReleases(newDismissed);
+
+    // 保存到localStorage
+    try {
+      localStorage.setItem('moontv_dismissed_releases', JSON.stringify([...newDismissed]));
+    } catch (error) {
+      console.error('保存已忽略列表失败:', error);
+    }
+
+    // 重新计算红点状态已由 TanStack Query 自动处理
+  };
+
+  // 从 key 中解析 source 和 id
+  const parseKey = (key: string) => {
+    const [source, id] = key.split('+');
+    return { source, id };
+  };
+
+  // 计算播放进度百分比
+  const getProgress = (record: PlayRecord) => {
+    if (record.total_time === 0) return 0;
+    return (record.play_time / record.total_time) * 100;
+  };
+
+  // 检查播放记录是否有新集数更新
+  const getNewEpisodesCount = (record: PlayRecord & { key: string }): number => {
+    if (!watchingUpdates || !watchingUpdates.updatedSeries) return 0;
+
+    const { source, id } = parseKey(record.key);
+
+    // 在watchingUpdates中查找匹配的剧集
+    const matchedSeries = watchingUpdates.updatedSeries.find(series =>
+      series.sourceKey === source &&
+      series.videoId === id &&
+      series.hasNewEpisode
+    );
+
+    return matchedSeries ? (matchedSeries.newEpisodes || 0) : 0;
   };
 
   const handleChangePassword = () => {
@@ -304,32 +350,19 @@ export const UserMenu: React.FC = () => {
 
     setPasswordLoading(true);
 
-    try {
-      const response = await fetch('/api/change-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          newPassword,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setPasswordError(data.error || '修改密码失败');
-        return;
-      }
-
-      // 修改成功，关闭弹窗并登出
-      setIsChangePasswordOpen(false);
-      await handleLogout();
-    } catch (error) {
-      setPasswordError('网络错误，请稍后重试');
-    } finally {
-      setPasswordLoading(false);
-    }
+    changePasswordMutation.mutate(newPassword, {
+      onSuccess: async () => {
+        // 修改成功，关闭弹窗并登出
+        setIsChangePasswordOpen(false);
+        await handleLogout();
+      },
+      onError: (error) => {
+        setPasswordError(error.message || '网络错误，请稍后重试');
+      },
+      onSettled: () => {
+        setPasswordLoading(false);
+      },
+    });
   };
 
   const handleSettings = () => {
@@ -341,115 +374,6 @@ export const UserMenu: React.FC = () => {
     setIsSettingsOpen(false);
   };
 
-  // 设置相关的处理函数
-  const handleAggregateToggle = (value: boolean) => {
-    setDefaultAggregateSearch(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('defaultAggregateSearch', JSON.stringify(value));
-    }
-  };
-
-  const handleDoubanProxyUrlChange = (value: string) => {
-    setDoubanProxyUrl(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('doubanProxyUrl', value);
-    }
-  };
-
-  const handleOptimizationToggle = (value: boolean) => {
-    setEnableOptimization(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('enableOptimization', JSON.stringify(value));
-    }
-  };
-
-  const handleFluidSearchToggle = (value: boolean) => {
-    setFluidSearch(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('fluidSearch', JSON.stringify(value));
-    }
-  };
-
-  const handleLiveDirectConnectToggle = (value: boolean) => {
-    setLiveDirectConnect(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('liveDirectConnect', JSON.stringify(value));
-    }
-  };
-
-  const handleDoubanDataSourceChange = (value: string) => {
-    setDoubanDataSource(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('doubanDataSource', value);
-    }
-  };
-
-  const handleDoubanImageProxyTypeChange = (value: string) => {
-    setDoubanImageProxyType(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('doubanImageProxyType', value);
-    }
-  };
-
-  const handleDoubanImageProxyUrlChange = (value: string) => {
-    setDoubanImageProxyUrl(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('doubanImageProxyUrl', value);
-    }
-  };
-
-  // 获取感谢信息
-  const getThanksInfo = (dataSource: string) => {
-    switch (dataSource) {
-      case 'cors-proxy-zwei':
-        return {
-          text: 'Thanks to @Zwei',
-          url: 'https://github.com/bestzwei',
-        };
-      case 'cmliussss-cdn-tencent':
-      case 'cmliussss-cdn-ali':
-        return {
-          text: 'Thanks to @CMLiussss',
-          url: 'https://github.com/cmliu',
-        };
-      default:
-        return null;
-    }
-  };
-
-  const handleResetSettings = () => {
-    const defaultDoubanProxyType =
-      (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY_TYPE || 'direct';
-    const defaultDoubanProxy =
-      (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY || '';
-    const defaultDoubanImageProxyType =
-      (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY_TYPE || 'direct';
-    const defaultDoubanImageProxyUrl =
-      (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY || '';
-    const defaultFluidSearch =
-      (window as any).RUNTIME_CONFIG?.FLUID_SEARCH !== false;
-
-    setDefaultAggregateSearch(true);
-    setEnableOptimization(false);
-    setFluidSearch(defaultFluidSearch);
-    setLiveDirectConnect(false);
-    setDoubanProxyUrl(defaultDoubanProxy);
-    setDoubanDataSource(defaultDoubanProxyType);
-    setDoubanImageProxyType(defaultDoubanImageProxyType);
-    setDoubanImageProxyUrl(defaultDoubanImageProxyUrl);
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('defaultAggregateSearch', JSON.stringify(true));
-      localStorage.setItem('enableOptimization', JSON.stringify(false));
-      localStorage.setItem('fluidSearch', JSON.stringify(defaultFluidSearch));
-      localStorage.setItem('liveDirectConnect', JSON.stringify(false));
-      localStorage.setItem('doubanProxyUrl', defaultDoubanProxy);
-      localStorage.setItem('doubanDataSource', defaultDoubanProxyType);
-      localStorage.setItem('doubanImageProxyType', defaultDoubanImageProxyType);
-      localStorage.setItem('doubanImageProxyUrl', defaultDoubanImageProxyUrl);
-    }
-  };
-
   // 检查是否显示管理面板按钮
   const showAdminPanel =
     authInfo?.role === 'owner' || authInfo?.role === 'admin';
@@ -457,6 +381,19 @@ export const UserMenu: React.FC = () => {
   // 检查是否显示修改密码按钮
   const showChangePassword =
     authInfo?.role !== 'owner' && storageType !== 'localstorage';
+
+  // 检查是否显示播放统计按钮（所有登录用户，且非localstorage存储）
+  const showPlayStats = authInfo?.username && storageType !== 'localstorage';
+
+  // 调试信息
+  console.log('UserMenu 更新提醒调试:', {
+    username: authInfo?.username,
+    storageType,
+    watchingUpdates,
+    showWatchingUpdates,
+    hasActualUpdates,
+    totalUpdates
+  });
 
   // 角色中文映射
   const getRoleText = (role?: string) => {
@@ -477,14 +414,14 @@ export const UserMenu: React.FC = () => {
     <>
       {/* 背景遮罩 - 普通菜单无需模糊 */}
       <div
-        className='fixed inset-0 bg-transparent z-[1000]'
+        className='fixed inset-0 bg-transparent z-1000'
         onClick={handleCloseMenu}
       />
 
       {/* 菜单面板 */}
-      <div className='fixed top-14 right-4 w-56 bg-white dark:bg-gray-900 rounded-lg shadow-xl z-[1001] border border-gray-200/50 dark:border-gray-700/50 overflow-hidden select-none'>
+      <div className='fixed top-14 right-4 w-56 bg-white dark:bg-gray-900 rounded-lg shadow-xl z-1001 border border-gray-200/50 dark:border-gray-700/50 overflow-hidden select-none'>
         {/* 用户信息区域 */}
-        <div className='px-3 py-2.5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-gray-100/50 dark:from-gray-800 dark:to-gray-800/50'>
+        <div className='px-3 py-2.5 border-b border-gray-200 dark:border-gray-700 bg-linear-to-r from-gray-50 to-gray-100/50 dark:from-gray-800 dark:to-gray-800/50'>
           <div className='space-y-1'>
             <div className='flex items-center justify-between'>
               <span className='text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
@@ -518,20 +455,136 @@ export const UserMenu: React.FC = () => {
           {/* 设置按钮 */}
           <button
             onClick={handleSettings}
-            className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm'
+            className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm'
           >
             <Settings className='w-4 h-4 text-gray-500 dark:text-gray-400' />
             <span className='font-medium'>设置</span>
           </button>
 
+          {/* 更新提醒按钮 */}
+          {showWatchingUpdates && (
+            <button
+              onClick={handleWatchingUpdates}
+              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm relative'
+            >
+              <Bell className='w-4 h-4 text-gray-500 dark:text-gray-400' />
+              <span className='font-medium'>更新提醒</span>
+              {hasActualUpdates && totalUpdates > 0 && (
+                <div className='ml-auto flex items-center gap-1'>
+                  <span className='inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full'>
+                    {totalUpdates > 99 ? '99+' : totalUpdates}
+                  </span>
+                </div>
+              )}
+            </button>
+          )}
+
+          {/* 继续观看按钮 */}
+          {showWatchingUpdates && (
+            <button
+              onClick={handleContinueWatching}
+              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm relative'
+            >
+              <PlayCircle className='w-4 h-4 text-gray-500 dark:text-gray-400' />
+              <span className='font-medium'>继续观看</span>
+              {playRecords.length > 0 && (
+                <span className='ml-auto text-xs text-gray-400'>{playRecords.length}</span>
+              )}
+            </button>
+          )}
+
+          {/* 我的收藏按钮 */}
+          {showWatchingUpdates && (
+            <button
+              onClick={handleFavorites}
+              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm relative'
+            >
+              <Heart className='w-4 h-4 text-gray-500 dark:text-gray-400' />
+              <span className='font-medium'>我的收藏</span>
+              {favorites.length > 0 && (
+                <span className='ml-auto text-xs text-gray-400'>{favorites.length}</span>
+              )}
+            </button>
+          )}
+
           {/* 管理面板按钮 */}
           {showAdminPanel && (
             <button
               onClick={handleAdminPanel}
-              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm'
+              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm'
             >
               <Shield className='w-4 h-4 text-gray-500 dark:text-gray-400' />
               <span className='font-medium'>管理面板</span>
+            </button>
+          )}
+
+          {/* 播放统计按钮 */}
+          {showPlayStats && (
+            <button
+              onClick={handlePlayStats}
+              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm'
+            >
+              <BarChart3 className='w-4 h-4 text-gray-500 dark:text-gray-400' />
+              <span className='font-medium'>
+                {authInfo?.role === 'owner' || authInfo?.role === 'admin' ? '播放统计' : '个人统计'}
+              </span>
+            </button>
+          )}
+
+          {/* 上映日程按钮 */}
+          <button
+            onClick={handleReleaseCalendar}
+            className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm'
+          >
+            <Calendar className='w-4 h-4 text-gray-500 dark:text-gray-400' />
+            <span className='font-medium'>上映日程</span>
+          </button>
+
+          {/* TVBox配置按钮 */}
+          <button
+            onClick={handleTVBoxConfig}
+            className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm'
+          >
+            <Tv className='w-4 h-4 text-gray-500 dark:text-gray-400' />
+            <span className='font-medium'>TVBox 配置</span>
+          </button>
+
+          {/* 观影室按钮 */}
+          {showWatchRoom && (
+            <button
+              onClick={handleWatchRoom}
+              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm'
+            >
+              <Users className='w-4 h-4 text-gray-500 dark:text-gray-400' />
+              <span className='font-medium'>观影室</span>
+            </button>
+          )}
+
+          {/* 下载管理按钮 */}
+          {downloadEnabled && (
+            <button
+              onClick={() => {
+                setShowDownloadPanel(true);
+                handleCloseMenu();
+              }}
+              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm'
+            >
+              <Download className='w-4 h-4 text-gray-500 dark:text-gray-400' />
+              <span className='font-medium'>下载管理</span>
+              {tasks.filter(t => t.status === 'downloading').length > 0 && (
+                <span className='ml-auto flex items-center gap-1'>
+                  <span className='relative flex h-2 w-2'>
+                    <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75'></span>
+                    <span className='relative inline-flex rounded-full h-2 w-2 bg-green-500'></span>
+                  </span>
+                  <span className='text-xs text-green-600 dark:text-green-400'>
+                    {tasks.filter(t => t.status === 'downloading').length}
+                  </span>
+                </span>
+              )}
+              {tasks.length > 0 && tasks.filter(t => t.status === 'downloading').length === 0 && (
+                <span className='ml-auto text-xs text-gray-400'>{tasks.length}</span>
+              )}
             </button>
           )}
 
@@ -539,7 +592,7 @@ export const UserMenu: React.FC = () => {
           {showChangePassword && (
             <button
               onClick={handleChangePassword}
-              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm'
+              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-[background-color] duration-150 ease-in-out text-sm'
             >
               <KeyRound className='w-4 h-4 text-gray-500 dark:text-gray-400' />
               <span className='font-medium'>修改密码</span>
@@ -552,7 +605,7 @@ export const UserMenu: React.FC = () => {
           {/* 登出按钮 */}
           <button
             onClick={handleLogout}
-            className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm'
+            className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-[background-color] duration-150 ease-in-out text-sm'
           >
             <LogOut className='w-4 h-4' />
             <span className='font-medium'>登出</span>
@@ -590,389 +643,12 @@ export const UserMenu: React.FC = () => {
     </>
   );
 
-  // 设置面板内容
-  const settingsPanel = (
-    <>
-      {/* 背景遮罩 */}
-      <div
-        className='fixed inset-0 bg-black/50 backdrop-blur-sm z-[1000]'
-        onClick={handleCloseSettings}
-        onTouchMove={(e) => {
-          // 只阻止滚动，允许其他触摸事件
-          e.preventDefault();
-        }}
-        onWheel={(e) => {
-          // 阻止滚轮滚动
-          e.preventDefault();
-        }}
-        style={{
-          touchAction: 'none',
-        }}
-      />
-
-      {/* 设置面板 */}
-      <div
-        className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl max-h-[90vh] bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] flex flex-col'
-      >
-        {/* 内容容器 - 独立的滚动区域 */}
-        <div
-          className='flex-1 p-6 overflow-y-auto'
-          data-panel-content
-          style={{
-            touchAction: 'pan-y', // 只允许垂直滚动
-            overscrollBehavior: 'contain', // 防止滚动冒泡
-          }}
-        >
-          {/* 标题栏 */}
-          <div className='flex items-center justify-between mb-6'>
-            <div className='flex items-center gap-3'>
-              <h3 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
-                本地设置
-              </h3>
-              <button
-                onClick={handleResetSettings}
-                className='px-2 py-1 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 border border-red-200 hover:border-red-300 dark:border-red-800 dark:hover:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors'
-                title='重置为默认设置'
-              >
-                恢复默认
-              </button>
-            </div>
-            <button
-              onClick={handleCloseSettings}
-              className='w-8 h-8 p-1 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors'
-              aria-label='Close'
-            >
-              <X className='w-full h-full' />
-            </button>
-          </div>
-
-          {/* 设置项 */}
-          <div className='space-y-6'>
-            {/* 豆瓣数据源选择 */}
-            <div className='space-y-3'>
-              <div>
-                <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                  豆瓣数据代理
-                </h4>
-                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                  选择获取豆瓣数据的方式
-                </p>
-              </div>
-              <div className='relative' data-dropdown='douban-datasource'>
-                {/* 自定义下拉选择框 */}
-                <button
-                  type='button'
-                  onClick={() => setIsDoubanDropdownOpen(!isDoubanDropdownOpen)}
-                  className='w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left'
-                >
-                  {
-                    doubanDataSourceOptions.find(
-                      (option) => option.value === doubanDataSource
-                    )?.label
-                  }
-                </button>
-
-                {/* 下拉箭头 */}
-                <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none'>
-                  <ChevronDown
-                    className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isDoubanDropdownOpen ? 'rotate-180' : ''
-                      }`}
-                  />
-                </div>
-
-                {/* 下拉选项列表 */}
-                {isDoubanDropdownOpen && (
-                  <div className='absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto'>
-                    {doubanDataSourceOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type='button'
-                        onClick={() => {
-                          handleDoubanDataSourceChange(option.value);
-                          setIsDoubanDropdownOpen(false);
-                        }}
-                        className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${doubanDataSource === option.value
-                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
-                          : 'text-gray-900 dark:text-gray-100'
-                          }`}
-                      >
-                        <span className='truncate'>{option.label}</span>
-                        {doubanDataSource === option.value && (
-                          <Check className='w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 ml-2' />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 感谢信息 */}
-              {getThanksInfo(doubanDataSource) && (
-                <div className='mt-3'>
-                  <button
-                    type='button'
-                    onClick={() =>
-                      window.open(getThanksInfo(doubanDataSource)!.url, '_blank')
-                    }
-                    className='flex items-center justify-center gap-1.5 w-full px-3 text-xs text-gray-500 dark:text-gray-400 cursor-pointer'
-                  >
-                    <span className='font-medium'>
-                      {getThanksInfo(doubanDataSource)!.text}
-                    </span>
-                    <ExternalLink className='w-3.5 opacity-70' />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 豆瓣代理地址设置 - 仅在选择自定义代理时显示 */}
-            {doubanDataSource === 'custom' && (
-              <div className='space-y-3'>
-                <div>
-                  <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                    豆瓣代理地址
-                  </h4>
-                  <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                    自定义代理服务器地址
-                  </p>
-                </div>
-                <input
-                  type='text'
-                  className='w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500'
-                  placeholder='例如: https://proxy.example.com/fetch?url='
-                  value={doubanProxyUrl}
-                  onChange={(e) => handleDoubanProxyUrlChange(e.target.value)}
-                />
-              </div>
-            )}
-
-            {/* 分割线 */}
-            <div className='border-t border-gray-200 dark:border-gray-700'></div>
-
-            {/* 豆瓣图片代理设置 */}
-            <div className='space-y-3'>
-              <div>
-                <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                  豆瓣图片代理
-                </h4>
-                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                  选择获取豆瓣图片的方式
-                </p>
-              </div>
-              <div className='relative' data-dropdown='douban-image-proxy'>
-                {/* 自定义下拉选择框 */}
-                <button
-                  type='button'
-                  onClick={() =>
-                    setIsDoubanImageProxyDropdownOpen(
-                      !isDoubanImageProxyDropdownOpen
-                    )
-                  }
-                  className='w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left'
-                >
-                  {
-                    doubanImageProxyTypeOptions.find(
-                      (option) => option.value === doubanImageProxyType
-                    )?.label
-                  }
-                </button>
-
-                {/* 下拉箭头 */}
-                <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none'>
-                  <ChevronDown
-                    className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isDoubanDropdownOpen ? 'rotate-180' : ''
-                      }`}
-                  />
-                </div>
-
-                {/* 下拉选项列表 */}
-                {isDoubanImageProxyDropdownOpen && (
-                  <div className='absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto'>
-                    {doubanImageProxyTypeOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type='button'
-                        onClick={() => {
-                          handleDoubanImageProxyTypeChange(option.value);
-                          setIsDoubanImageProxyDropdownOpen(false);
-                        }}
-                        className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${doubanImageProxyType === option.value
-                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
-                          : 'text-gray-900 dark:text-gray-100'
-                          }`}
-                      >
-                        <span className='truncate'>{option.label}</span>
-                        {doubanImageProxyType === option.value && (
-                          <Check className='w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 ml-2' />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 感谢信息 */}
-              {getThanksInfo(doubanImageProxyType) && (
-                <div className='mt-3'>
-                  <button
-                    type='button'
-                    onClick={() =>
-                      window.open(
-                        getThanksInfo(doubanImageProxyType)!.url,
-                        '_blank'
-                      )
-                    }
-                    className='flex items-center justify-center gap-1.5 w-full px-3 text-xs text-gray-500 dark:text-gray-400 cursor-pointer'
-                  >
-                    <span className='font-medium'>
-                      {getThanksInfo(doubanImageProxyType)!.text}
-                    </span>
-                    <ExternalLink className='w-3.5 opacity-70' />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 豆瓣图片代理地址设置 - 仅在选择自定义代理时显示 */}
-            {doubanImageProxyType === 'custom' && (
-              <div className='space-y-3'>
-                <div>
-                  <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                    豆瓣图片代理地址
-                  </h4>
-                  <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                    自定义图片代理服务器地址
-                  </p>
-                </div>
-                <input
-                  type='text'
-                  className='w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500'
-                  placeholder='例如: https://proxy.example.com/fetch?url='
-                  value={doubanImageProxyUrl}
-                  onChange={(e) =>
-                    handleDoubanImageProxyUrlChange(e.target.value)
-                  }
-                />
-              </div>
-            )}
-
-            {/* 分割线 */}
-            <div className='border-t border-gray-200 dark:border-gray-700'></div>
-
-            {/* 默认聚合搜索结果 */}
-            <div className='flex items-center justify-between'>
-              <div>
-                <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                  默认聚合搜索结果
-                </h4>
-                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                  搜索时默认按标题和年份聚合显示结果
-                </p>
-              </div>
-              <label className='flex items-center cursor-pointer'>
-                <div className='relative'>
-                  <input
-                    type='checkbox'
-                    className='sr-only peer'
-                    checked={defaultAggregateSearch}
-                    onChange={(e) => handleAggregateToggle(e.target.checked)}
-                  />
-                  <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                  <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-                </div>
-              </label>
-            </div>
-
-            {/* 优选和测速 */}
-            <div className='flex items-center justify-between'>
-              <div>
-                <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                  优选和测速
-                </h4>
-                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                  如出现播放器劫持问题可关闭
-                </p>
-              </div>
-              <label className='flex items-center cursor-pointer'>
-                <div className='relative'>
-                  <input
-                    type='checkbox'
-                    className='sr-only peer'
-                    checked={enableOptimization}
-                    onChange={(e) => handleOptimizationToggle(e.target.checked)}
-                  />
-                  <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                  <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-                </div>
-              </label>
-            </div>
-
-            {/* 流式搜索 */}
-            <div className='flex items-center justify-between'>
-              <div>
-                <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                  流式搜索输出
-                </h4>
-                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                  启用搜索结果实时流式输出，关闭后使用传统一次性搜索
-                </p>
-              </div>
-              <label className='flex items-center cursor-pointer'>
-                <div className='relative'>
-                  <input
-                    type='checkbox'
-                    className='sr-only peer'
-                    checked={fluidSearch}
-                    onChange={(e) => handleFluidSearchToggle(e.target.checked)}
-                  />
-                  <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                  <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-                </div>
-              </label>
-            </div>
-
-            {/* 直播视频浏览器直连 */}
-            <div className='flex items-center justify-between'>
-              <div>
-                <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                  IPTV 视频浏览器直连
-                </h4>
-                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                  开启 IPTV 视频浏览器直连时，需要自备 Allow CORS 插件
-                </p>
-              </div>
-              <label className='flex items-center cursor-pointer'>
-                <div className='relative'>
-                  <input
-                    type='checkbox'
-                    className='sr-only peer'
-                    checked={liveDirectConnect}
-                    onChange={(e) => handleLiveDirectConnectToggle(e.target.checked)}
-                  />
-                  <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                  <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          {/* 底部说明 */}
-          <div className='mt-6 pt-4 border-t border-gray-200 dark:border-gray-700'>
-            <p className='text-xs text-gray-500 dark:text-gray-400 text-center'>
-              这些设置保存在本地浏览器中
-            </p>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-
   // 修改密码面板内容
   const changePasswordPanel = (
     <>
       {/* 背景遮罩 */}
       <div
-        className='fixed inset-0 bg-black/50 backdrop-blur-sm z-[1000]'
+        className='fixed inset-0 bg-black/50 backdrop-blur-sm z-1000'
         onClick={handleCloseChangePassword}
         onTouchMove={(e) => {
           // 只阻止滚动，允许其他触摸事件
@@ -989,7 +665,7 @@ export const UserMenu: React.FC = () => {
 
       {/* 修改密码面板 */}
       <div
-        className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] overflow-hidden'
+        className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-xl z-1001 overflow-hidden'
       >
         {/* 内容容器 - 独立的滚动区域 */}
         <div
@@ -1086,18 +762,436 @@ export const UserMenu: React.FC = () => {
     </>
   );
 
+  // 更新剧集海报弹窗内容
+  const watchingUpdatesPanel = (
+    <>
+      {/* 背景遮罩 */}
+      <div
+        className='fixed inset-0 bg-black/50 backdrop-blur-sm z-1000'
+        onClick={handleCloseWatchingUpdates}
+        onTouchMove={(e) => {
+          e.preventDefault();
+        }}
+        onWheel={(e) => {
+          e.preventDefault();
+        }}
+        style={{
+          touchAction: 'none',
+        }}
+      />
+
+      {/* 更新弹窗 */}
+      <div
+        className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl max-h-[90vh] bg-white dark:bg-gray-900 rounded-xl shadow-xl z-1001 flex flex-col'
+      >
+        {/* 内容容器 - 独立的滚动区域 */}
+        <div
+          className='flex-1 p-6 overflow-y-auto'
+          data-panel-content
+          style={{
+            touchAction: 'pan-y',
+            overscrollBehavior: 'contain',
+          }}
+        >
+          {/* 标题栏 */}
+          <div className='flex items-center justify-between mb-6'>
+            <div className='flex items-center gap-3'>
+              <h3 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
+                更新提醒
+              </h3>
+              <div className='flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400'>
+                {watchingUpdates && watchingUpdates.updatedCount > 0 && (
+                  <span className='inline-flex items-center gap-1'>
+                    <div className='w-2 h-2 bg-red-500 rounded-full animate-pulse'></div>
+                    {watchingUpdates.updatedCount}部有新集
+                  </span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={handleCloseWatchingUpdates}
+              className='w-8 h-8 p-1 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors'
+              aria-label='Close'
+            >
+              <X className='w-full h-full' />
+            </button>
+          </div>
+
+          {/* 更新列表 */}
+          <div className='space-y-8'>
+            {/* 没有更新时的提示 */}
+            {!hasActualUpdates && (
+              <div className='text-center py-8'>
+                <div className='text-gray-500 dark:text-gray-400 text-sm'>
+                  暂无新剧集更新
+                </div>
+                <div className='text-xs text-gray-400 dark:text-gray-500 mt-2'>
+                  系统会定期检查您观看过的剧集是否有新集数更新
+                </div>
+              </div>
+            )}
+            {/* 新上映的剧集 */}
+            {watchingUpdates && watchingUpdates.updatedSeries.filter(series => series.hasNewRelease && !dismissedReleases.has(`${series.sourceKey}+${series.videoId}`)).length > 0 && (
+              <div className='mb-8'>
+                <div className='flex items-center gap-2 mb-4'>
+                  <h4 className='text-lg font-semibold text-gray-900 dark:text-white'>
+                    🎬 新上映
+                  </h4>
+                  <div className='flex items-center gap-1'>
+                    <div className='w-2 h-2 bg-green-500 rounded-full animate-pulse'></div>
+                    <span className='text-sm text-green-500 font-medium'>
+                      {watchingUpdates.updatedSeries.filter(series => series.hasNewRelease && !dismissedReleases.has(`${series.sourceKey}+${series.videoId}`)).length}部新上映
+                    </span>
+                  </div>
+                </div>
+
+                <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
+                  {watchingUpdates.updatedSeries
+                    .filter(series => series.hasNewRelease && !dismissedReleases.has(`${series.sourceKey}+${series.videoId}`))
+                    .map((series, index) => (
+                      <div key={`release-${series.title}_${series.year}_${index}`} className='relative group/card'>
+                        <div className='relative group-hover/card:z-5 transition-all duration-300'>
+                          <VideoCard
+                            title={series.title}
+                            poster={series.cover}
+                            year={series.year}
+                            source={series.sourceKey}
+                            source_name={series.source_name}
+                            episodes={series.totalEpisodes}
+                            id={series.videoId}
+                            onDelete={undefined}
+                            type={series.totalEpisodes > 1 ? 'tv' : 'movie'}
+                            from="favorite"
+                            remarks={series.remarks}
+                            releaseDate={series.releaseDate}
+                          />
+                        </div>
+                        {/* 新上映徽章 */}
+                        <div className='absolute -top-2 -right-2 bg-green-600 text-white text-xs px-2 py-0.5 rounded-md shadow-lg animate-pulse z-10 font-bold'>
+                          新上映
+                        </div>
+                        {/* 不再提醒按钮 */}
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDismissRelease(series.sourceKey, series.videoId);
+                          }}
+                          className='absolute -top-2 -left-2 bg-gray-800/80 hover:bg-gray-900 text-white rounded-full p-1 shadow-lg z-10 opacity-0 group-hover/card:opacity-100 transition-opacity'
+                          title='不再提醒'
+                        >
+                          <X className='w-3 h-3' />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+            {/* 有新集数的剧集 */}
+            {watchingUpdates && watchingUpdates.updatedSeries.filter(series => series.hasNewEpisode).length > 0 && (
+              <div>
+                <div className='flex items-center gap-2 mb-4'>
+                  <h4 className='text-lg font-semibold text-gray-900 dark:text-white'>
+                    新集更新
+                  </h4>
+                  <div className='flex items-center gap-1'>
+                    <div className='w-2 h-2 bg-red-500 rounded-full animate-pulse'></div>
+                    <span className='text-sm text-red-500 font-medium'>
+                      {watchingUpdates.updatedSeries.filter(series => series.hasNewEpisode).length}部剧集有更新
+                    </span>
+                  </div>
+                </div>
+
+                <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
+                  {watchingUpdates.updatedSeries
+                    .filter(series => series.hasNewEpisode)
+                    .map((series, index) => (
+                      <div key={`new-${series.title}_${series.year}_${index}`} className='relative group/card'>
+                        <div className='relative group-hover/card:z-5 transition-all duration-300'>
+                          <VideoCard
+                            title={series.title}
+                            poster={series.cover}
+                            year={series.year}
+                            source={series.sourceKey}
+                            source_name={series.source_name}
+                            episodes={series.totalEpisodes}
+                            currentEpisode={series.currentEpisode}
+                            id={series.videoId}
+                            onDelete={undefined}
+                            type={series.totalEpisodes > 1 ? 'tv' : ''}
+                            from="playrecord"
+                          />
+                        </div>
+                        {/* 新集数徽章 - Netflix 统一风格 */}
+                        <div className='absolute -top-2 -right-2 bg-red-600 text-white text-xs px-2 py-0.5 rounded-md shadow-lg animate-pulse z-10 font-bold'>
+                          +{series.newEpisodes}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+          </div>
+
+          {/* 底部说明 */}
+          <div className='mt-6 pt-4 border-t border-gray-200 dark:border-gray-700'>
+            <p className='text-xs text-gray-500 dark:text-gray-400 text-center'>
+              点击海报即可观看新更新的剧集
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  // 继续观看弹窗内容
+  const continueWatchingPanel = (
+    <>
+      {/* 背景遮罩 */}
+      <div
+        className='fixed inset-0 bg-black/50 backdrop-blur-sm z-1000'
+        onClick={handleCloseContinueWatching}
+        onTouchMove={(e) => {
+          e.preventDefault();
+        }}
+        onWheel={(e) => {
+          e.preventDefault();
+        }}
+        style={{
+          touchAction: 'none',
+        }}
+      />
+
+      {/* 继续观看弹窗 */}
+      <div
+        className='fixed inset-x-4 top-1/2 transform -translate-y-1/2 max-w-4xl mx-auto bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 z-1001 max-h-[80vh] overflow-y-auto'
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className='p-6'>
+          <div className='flex items-center justify-between mb-4'>
+            <h3 className='text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2'>
+              <PlayCircle className='w-6 h-6 text-blue-500' />
+              继续观看
+            </h3>
+            <button
+              onClick={handleCloseContinueWatching}
+              className='p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors'
+            >
+              <X className='w-5 h-5' />
+            </button>
+          </div>
+
+          {/* 播放记录网格 */}
+          <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
+            {playRecords.map((record) => {
+              const { source, id } = parseKey(record.key);
+              const newEpisodesCount = getNewEpisodesCount(record);
+              return (
+                <div key={record.key} className='relative group/card'>
+                  <div className='relative group-hover/card:z-5 transition-all duration-300'>
+                    <VideoCard
+                      id={id}
+                      title={record.title}
+                      poster={record.cover}
+                      year={record.year}
+                      source={source}
+                      source_name={record.source_name}
+                      progress={getProgress(record)}
+                      episodes={record.total_episodes}
+                      currentEpisode={record.index}
+                      query={record.search_title}
+                      from='playrecord'
+                      type={record.total_episodes > 1 ? 'tv' : ''}
+                      remarks={record.remarks}
+                    />
+                  </div>
+                  {/* 新集数徽章 - Netflix 统一风格 */}
+                  {newEpisodesCount > 0 && (
+                    <div className='absolute -top-2 -right-2 bg-red-600 text-white text-xs px-2 py-0.5 rounded-md shadow-lg animate-pulse z-10 font-bold'>
+                      +{newEpisodesCount}
+                    </div>
+                  )}
+                  {/* 进度指示器 */}
+                  {getProgress(record) > 0 && (
+                    <div className='absolute bottom-2 left-2 right-2 bg-black/50 rounded px-2 py-1'>
+                      <div className='flex items-center gap-1'>
+                        <div className='flex-1 bg-gray-600 rounded-full h-1'>
+                          <div
+                            className='bg-blue-500 h-1 rounded-full transition-all'
+                            style={{ width: `${Math.min(getProgress(record), 100)}%` }}
+                          />
+                        </div>
+                        <span className='text-xs text-white font-medium'>
+                          {Math.round(getProgress(record))}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 空状态 */}
+          {playRecords.length === 0 && (
+            <div className='text-center py-12'>
+              <PlayCircle className='w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4' />
+              <p className='text-gray-500 dark:text-gray-400 mb-2'>暂无需要继续观看的内容</p>
+              <p className='text-xs text-gray-400 dark:text-gray-500'>
+                {enableContinueWatchingFilter
+                  ? `观看进度在${continueWatchingMinProgress}%-${continueWatchingMaxProgress}%之间且播放时间超过2分钟的内容会显示在这里`
+                  : '播放时间超过2分钟的所有内容都会显示在这里'
+                }
+              </p>
+            </div>
+          )}
+
+          {/* 底部说明 */}
+          <div className='mt-6 pt-4 border-t border-gray-200 dark:border-gray-700'>
+            <p className='text-xs text-gray-500 dark:text-gray-400 text-center'>
+              点击海报即可继续观看
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  // 我的收藏弹窗内容
+  const favoritesPanel = (
+    <>
+      {/* 背景遮罩 */}
+      <div
+        className='fixed inset-0 bg-black/50 backdrop-blur-sm z-1000'
+        onClick={handleCloseFavorites}
+        onTouchMove={(e) => {
+          e.preventDefault();
+        }}
+        onWheel={(e) => {
+          e.preventDefault();
+        }}
+        style={{
+          touchAction: 'none',
+        }}
+      />
+
+      {/* 收藏弹窗 */}
+      <div
+        className='fixed inset-x-4 top-1/2 transform -translate-y-1/2 max-w-4xl mx-auto bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 z-1001 max-h-[80vh] overflow-y-auto'
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className='p-6'>
+          <div className='flex items-center justify-between mb-4'>
+            <h3 className='text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2'>
+              <Heart className='w-6 h-6 text-red-500' />
+              我的收藏
+            </h3>
+            <button
+              onClick={handleCloseFavorites}
+              className='p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors'
+            >
+              <X className='w-5 h-5' />
+            </button>
+          </div>
+
+          {/* 收藏网格 */}
+          <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
+            {favorites.map((favorite) => {
+              const { source, id } = parseKey(favorite.key);
+
+              // 智能计算即将上映状态
+              let calculatedRemarks = favorite.remarks;
+              let isNewRelease = false;
+
+              if (favorite.releaseDate) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const releaseDate = new Date(favorite.releaseDate);
+                const daysDiff = Math.ceil((releaseDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+                // 根据天数差异动态更新显示文字
+                if (daysDiff < 0) {
+                  const daysAgo = Math.abs(daysDiff);
+                  calculatedRemarks = `已上映${daysAgo}天`;
+                  // 7天内上映的标记为新上映
+                  if (daysAgo <= 7) {
+                    isNewRelease = true;
+                  }
+                } else if (daysDiff === 0) {
+                  calculatedRemarks = '今日上映';
+                  isNewRelease = true;
+                } else {
+                  calculatedRemarks = `${daysDiff}天后上映`;
+                }
+              }
+
+              return (
+                <div key={favorite.key} className='relative'>
+                  <VideoCard
+                    id={id}
+                    title={favorite.title}
+                    poster={favorite.cover}
+                    year={favorite.year}
+                    source={source}
+                    source_name={favorite.source_name}
+                    episodes={favorite.total_episodes}
+                    query={favorite.search_title}
+                    from='favorite'
+                    type={favorite.total_episodes > 1 ? 'tv' : ''}
+                    remarks={calculatedRemarks}
+                    releaseDate={favorite.releaseDate}
+                  />
+                  {/* 收藏心形图标 - 隐藏，使用VideoCard内部的hover爱心 */}
+                  {/* 新上映高亮标记 - Netflix 统一风格 - 7天内上映的显示 */}
+                  {isNewRelease && (
+                    <div className='absolute top-2 left-2 bg-orange-500 text-white text-xs font-bold px-3 py-1 rounded-md shadow-lg animate-pulse z-40'>
+                      新上映
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 空状态 */}
+          {favorites.length === 0 && (
+            <div className='text-center py-12'>
+              <Heart className='w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4' />
+              <p className='text-gray-500 dark:text-gray-400 mb-2'>暂无收藏</p>
+              <p className='text-xs text-gray-400 dark:text-gray-500'>
+                在详情页点击收藏按钮即可添加收藏
+              </p>
+            </div>
+          )}
+
+          {/* 底部说明 */}
+          <div className='mt-6 pt-4 border-t border-gray-200 dark:border-gray-700'>
+            <p className='text-xs text-gray-500 dark:text-gray-400 text-center'>
+              点击海报即可进入详情页面
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <>
       <div className='relative'>
         <button
           onClick={handleMenuClick}
-          className='w-10 h-10 p-2 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-200/50 dark:text-gray-300 dark:hover:bg-gray-700/50 transition-colors'
+          className='relative w-10 h-10 p-2 rounded-full flex items-center justify-center text-gray-600 hover:text-blue-500 dark:text-gray-300 dark:hover:text-blue-400 transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-blue-500/30 dark:hover:shadow-blue-400/30 group'
           aria-label='User Menu'
         >
-          <User className='w-full h-full' />
+          {/* 微光背景效果 */}
+          <div className='absolute inset-0 rounded-full bg-linear-to-br from-blue-400/0 to-purple-600/0 group-hover:from-blue-400/20 group-hover:to-purple-600/20 dark:group-hover:from-blue-300/20 dark:group-hover:to-purple-500/20 transition-all duration-300'></div>
+
+          <User className='w-full h-full relative z-10 group-hover:scale-110 transition-transform duration-300' />
         </button>
-        {updateStatus === UpdateStatus.HAS_UPDATE && (
-          <div className='absolute top-[2px] right-[2px] w-2 h-2 bg-yellow-500 rounded-full'></div>
+        {/* 统一更新提醒点：版本更新或剧集更新都显示橙色点 */}
+        {((updateStatus === UpdateStatus.HAS_UPDATE) || (hasActualUpdates && totalUpdates > 0)) && (
+          <div className='absolute top-[2px] right-[2px] w-2 h-2 bg-yellow-500 rounded-full animate-pulse shadow-lg shadow-yellow-500/50'></div>
         )}
       </div>
 
@@ -1105,12 +1199,29 @@ export const UserMenu: React.FC = () => {
       {isOpen && mounted && createPortal(menuPanel, document.body)}
 
       {/* 使用 Portal 将设置面板渲染到 document.body */}
-      {isSettingsOpen && mounted && createPortal(settingsPanel, document.body)}
+      {isSettingsOpen && mounted && (
+        <SettingsPanel isOpen={isSettingsOpen} onClose={handleCloseSettings} />
+      )}
 
       {/* 使用 Portal 将修改密码面板渲染到 document.body */}
       {isChangePasswordOpen &&
         mounted &&
         createPortal(changePasswordPanel, document.body)}
+
+      {/* 使用 Portal 将更新提醒面板渲染到 document.body */}
+      {isWatchingUpdatesOpen &&
+        mounted &&
+        createPortal(watchingUpdatesPanel, document.body)}
+
+      {/* 使用 Portal 将继续观看面板渲染到 document.body */}
+      {isContinueWatchingOpen &&
+        mounted &&
+        createPortal(continueWatchingPanel, document.body)}
+
+      {/* 使用 Portal 将我的收藏面板渲染到 document.body */}
+      {isFavoritesOpen &&
+        mounted &&
+        createPortal(favoritesPanel, document.body)}
 
       {/* 版本面板 */}
       <VersionPanel

@@ -18,13 +18,11 @@ interface MultiLevelCategory {
 interface MultiLevelSelectorProps {
   onChange: (values: Record<string, string>) => void;
   contentType?: 'movie' | 'tv' | 'show' | 'anime-tv' | 'anime-movie';
-  initialValues?: Record<string, string>; // 添加初始值支持
 }
 
 const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
   onChange,
   contentType = 'movie',
-  initialValues = {},
 }) => {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState<{
@@ -32,14 +30,9 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     y: number;
     width: number;
   }>({ x: 0, y: 0, width: 0 });
-  const [values, setValues] = useState<Record<string, string>>(initialValues);
+  const [values, setValues] = useState<Record<string, string>>({});
   const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // 监听initialValues变化，更新内部状态
-  useEffect(() => {
-    setValues(initialValues);
-  }, [initialValues]);
 
   // 根据内容类型获取对应的类型选项
   const getTypeOptions = (
@@ -294,6 +287,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       options: [
         { label: '全部', value: 'all' },
         { label: '2020年代', value: '2020s' },
+        { label: '2026', value: '2026' },
         { label: '2025', value: '2025' },
         { label: '2024', value: '2024' },
         { label: '2023', value: '2023' },
@@ -400,17 +394,19 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     setValues(newValues);
 
     // 构建传递给父组件的值，排序传递 value，其他传递 label
+    // anime 类型默认使用近期热度(U)，其他类型使用综合排序(T)
+    const defaultSort = (contentType === 'anime-tv' || contentType === 'anime-movie') ? 'U' : 'T';
     const selectionsForParent: Record<string, string> = {
       type: 'all',
       region: 'all',
       year: 'all',
       platform: 'all',
       label: 'all',
-      sort: 'T',
+      sort: defaultSort,
     };
 
     Object.entries(newValues).forEach(([key, value]) => {
-      if (value && value !== 'all' && (key !== 'sort' || value !== 'T')) {
+      if (value && value !== 'all' && (key !== 'sort' || value !== defaultSort)) {
         const category = categories.find((cat) => cat.key === key);
         if (category) {
           const option = category.options.find((opt) => opt.value === value);
@@ -436,23 +432,28 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
 
     const value = values[categoryKey];
 
-    if (
-      !value ||
-      value === 'all' ||
-      (categoryKey === 'sort' && value === 'T')
-    ) {
+    // 🚀 排序始终显示选中的值，不隐藏默认值
+    if (categoryKey === 'sort') {
+      const option = category.options.find((opt) => opt.value === value);
+      return option?.label || category.label;
+    }
+
+    // 其他分类：如果没有值或是 'all'，显示分类标签
+    if (!value || value === 'all') {
       return category.label;
     }
     const option = category.options.find((opt) => opt.value === value);
     return option?.label || category.label;
   };
 
-  // 检查是否为默认值
+  // 检查是否为默认值（用于高亮显示）
   const isDefaultValue = (categoryKey: string) => {
     const value = values[categoryKey];
-    return (
-      !value || value === 'all' || (categoryKey === 'sort' && value === 'T')
-    );
+    // 🚀 排序永远不视为默认值，始终高亮显示
+    if (categoryKey === 'sort') {
+      return false;
+    }
+    return !value || value === 'all';
   };
 
   // 检查选项是否被选中
@@ -461,7 +462,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     if (value === undefined) {
       value = 'all';
       if (categoryKey === 'sort') {
-        value = 'T';
+        value = (contentType === 'anime-tv' || contentType === 'anime-movie') ? 'U' : 'T';
       }
     }
     return value === optionValue;
@@ -490,6 +491,19 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       window.removeEventListener('resize', handleResize);
     };
   }, [activeCategory]);
+
+  // 组件挂载时初始化默认值
+  useEffect(() => {
+    const defaultSort = (contentType === 'anime-tv' || contentType === 'anime-movie') ? 'U' : 'T';
+    onChange({
+      type: 'all',
+      region: 'all',
+      year: 'all',
+      platform: 'all',
+      label: 'all',
+      sort: defaultSort,
+    });
+  }, [contentType]); // 当 contentType 变化时重新初始化
 
   // 点击外部关闭下拉框
   useEffect(() => {
@@ -557,7 +571,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className='fixed z-[9999] bg-white/95 dark:bg-gray-800/95 rounded-xl border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-sm'
+            className='fixed z-9999 bg-white/95 dark:bg-gray-800/95 rounded-xl border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-sm'
             style={{
               left: `${dropdownPosition.x}px`,
               top: `${dropdownPosition.y}px`,

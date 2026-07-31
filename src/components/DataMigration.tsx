@@ -79,7 +79,7 @@ const AlertModal = ({
   };
 
   return createPortal(
-    <div className={`fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'}`} onClick={onClose}>
+    <div className={`fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'}`} onClick={onClose}>
       <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border ${getBgColor()} transition-all duration-200 ${isVisible ? 'scale-100' : 'scale-95'}`} onClick={(e) => e.stopPropagation()}>
         <div className="p-6 text-center">
           <div className="flex justify-center mb-4">
@@ -330,7 +330,7 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
       <div className="max-w-6xl mx-auto space-y-6">
         {/* 简洁警告提示 */}
         <div className="flex items-center gap-3 p-4 border border-amber-200 dark:border-amber-700 rounded-lg bg-amber-50/30 dark:bg-amber-900/5">
-          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
           <p className="text-sm text-amber-800 dark:text-amber-200">
             数据迁移操作请谨慎，确保已备份重要数据
           </p>
@@ -379,6 +379,7 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
                     <div>• 用户数据</div>
                     <div>• 播放记录</div>
                     <div>• 收藏夹</div>
+                    <div>• 想看</div>
                   </div>
                 </div>
               </div>

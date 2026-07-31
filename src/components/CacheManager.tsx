@@ -12,23 +12,32 @@ import {
   MagnifyingGlassIcon,
   FolderIcon,
   VideoCameraIcon,
+  PlayIcon,
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
 interface CacheStats {
   douban: { count: number; size: number; types: Record<string, number> };
+  shortdrama: { count: number; size: number; types: Record<string, number> };
+  tmdb: { count: number; size: number; types: Record<string, number> };
+  bangumi: { count: number; size: number; types: Record<string, number> };
   danmu: { count: number; size: number };
   netdisk: { count: number; size: number };
   youtube: { count: number; size: number };
+  bilibili: { count: number; size: number };
   search: { count: number; size: number };
   other: { count: number; size: number };
   total: { count: number; size: number };
   timestamp: string;
   formattedSizes: {
     douban: string;
+    bangumi: string;
+    shortdrama: string;
+    tmdb: string;
     danmu: string;
     netdisk: string;
     youtube: string;
+    bilibili: string;
     search: string;
     other: string;
     total: string;
@@ -52,6 +61,27 @@ const CACHE_TYPES: CacheType[] = [
     color: 'text-green-600 bg-green-100'
   },
   {
+    key: 'bangumi',
+    name: 'Bangumi数据',
+    description: '新番放送、动漫详情等 Bangumi 数据缓存',
+    icon: FilmIcon,
+    color: 'text-purple-600 bg-purple-100'
+  },
+  {
+    key: 'shortdrama',
+    name: '短剧数据',
+    description: '短剧分类、推荐、列表、集数等数据缓存',
+    icon: PlayIcon,
+    color: 'text-orange-600 bg-orange-100'
+  },
+  {
+    key: 'tmdb',
+    name: 'TMDB数据',
+    description: 'TMDB演员搜索、作品信息等数据缓存',
+    icon: FilmIcon,
+    color: 'text-purple-600 bg-purple-100'
+  },
+  {
     key: 'danmu',
     name: '弹幕数据',
     description: '外部弹幕API获取的弹幕内容缓存',
@@ -71,6 +101,13 @@ const CACHE_TYPES: CacheType[] = [
     description: 'YouTube视频搜索结果缓存（API和演示模式）',
     icon: VideoCameraIcon,
     color: 'text-red-600 bg-red-100'
+  },
+  {
+    key: 'bilibili',
+    name: 'Bilibili搜索',
+    description: 'Bilibili视频和番剧搜索结果缓存',
+    icon: VideoCameraIcon,
+    color: 'text-pink-600 bg-pink-100'
   }
 ];
 
@@ -149,7 +186,7 @@ export default function CacheManager() {
 
   // 清理所有缓存
   const clearAllCache = async () => {
-    if (!confirm('⚠️ 确定要清理所有缓存吗？这将清除豆瓣、弹幕、网盘搜索、YouTube搜索等所有缓存数据。')) {
+    if (!confirm('⚠️ 确定要清理所有缓存吗？这将清除豆瓣、短剧、TMDB、弹幕、网盘搜索、YouTube搜索等所有缓存数据。')) {
       return;
     }
     await clearCache('all');
@@ -201,7 +238,7 @@ export default function CacheManager() {
 
       {/* 总览统计 */}
       {stats && (
-        <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-6 text-white">
+        <div className="bg-linear-to-r from-blue-500 to-blue-600 rounded-lg p-6 text-white">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="text-center">
               <div className="text-3xl font-bold">{stats.total.count}</div>
@@ -263,6 +300,45 @@ export default function CacheManager() {
 
                 {/* 豆瓣缓存子类型统计 */}
                 {cacheType.key === 'douban' && typeStats?.types && (
+                  <div className="mb-4 space-y-1">
+                    <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">类型分布：</div>
+                    {Object.entries(typeStats.types).map(([type, count]) => (
+                      <div key={type} className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">{type}:</span>
+                        <span className="font-mono text-gray-900 dark:text-gray-100">{count as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Bangumi缓存子类型统计 */}
+                {cacheType.key === 'bangumi' && typeStats?.types && (
+                  <div className="mb-4 space-y-1">
+                    <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">类型分布：</div>
+                    {Object.entries(typeStats.types).map(([type, count]) => (
+                      <div key={type} className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">{type}:</span>
+                        <span className="font-mono text-gray-900 dark:text-gray-100">{count as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 短剧缓存子类型统计 */}
+                {cacheType.key === 'shortdrama' && typeStats?.types && (
+                  <div className="mb-4 space-y-1">
+                    <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">类型分布：</div>
+                    {Object.entries(typeStats.types).map(([type, count]) => (
+                      <div key={type} className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">{type}:</span>
+                        <span className="font-mono text-gray-900 dark:text-gray-100">{count as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* TMDB缓存子类型统计 */}
+                {cacheType.key === 'tmdb' && typeStats?.types && (
                   <div className="mb-4 space-y-1">
                     <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">类型分布：</div>
                     {Object.entries(typeStats.types).map(([type, count]) => (
@@ -344,7 +420,7 @@ export default function CacheManager() {
           
           <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
             <p className="flex items-start">
-              <ExclamationTriangleIcon className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 text-orange-500" />
+              <ExclamationTriangleIcon className="h-4 w-4 mr-2 mt-0.5 shrink-0 text-orange-500" />
               注意：清理缓存后，相应的数据将需要重新从源服务器获取，可能会影响加载速度。
             </p>
           </div>

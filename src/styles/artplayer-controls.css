@@ -1,0 +1,79 @@
+/* ============================================
+   ArtPlayer Controls Styles
+   控制栏样式 - 模块化重构版
+   ⚠️ 重要：保留所有 !important 确保正确覆盖
+   ============================================ */
+
+/* ===== Poster (封面图) ===== */
+.art-poster {
+  background-size: contain !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-color: #000 !important;
+}
+
+/* ===== Controls Hover Area Fix ===== */
+/* 增加控制栏底部的 hover 触发区域，解决全屏时需要移到很下面才能显示控制栏的问题 */
+.art-video-player .art-bottom {
+  /* 增加底部 padding，扩大 hover 区域 */
+  padding-bottom: 40px !important;
+}
+
+/* 全屏时增加更大的 hover 区域 */
+.art-video-player.art-fullscreen .art-bottom,
+.art-video-player.art-fullscreen-web .art-bottom {
+  padding-bottom: 60px !important;
+}
+
+/* ===== Volume Control Hover Fix ===== */
+/* 修复音量面板 hover 时消失的问题 - 让面板始终接收鼠标事件 */
+@media (hover: hover) {
+  .art-volume-panel {
+    pointer-events: auto !important;
+  }
+}
+
+/* ===== Lock Mode Fix ===== */
+/* 修复锁定状态下控制栏背景异常显示的问题 */
+/* ArtPlayer 在锁定状态下会将控制栏移出视野，但 .art-bottom 的渐变背景仍然显示 */
+/* 用户反馈：锁定后黑色背景框还在遮挡字幕，需要完全隐藏 */
+/*
+ * 最佳实践：只使用 display: none 即可完全隐藏元素
+ * - 不渲染到DOM树
+ * - 不占用空间
+ * - 不响应事件
+ * - 性能最优
+ * 参考：https://stackoverflow.com/questions/14731049/visibilityhidden-vs-displaynone-vs-opacity0
+ */
+.art-lock .art-bottom {
+  display: none !important;
+}
+
+/* 同时隐藏控制栏的所有子元素（防御性编程） */
+.art-lock .art-controls {
+  display: none !important;
+}
+
+/* ===== Danmaku System Mobile Optimization ===== */
+/* 弹幕面板在不同挂载位置的定位处理 */
+@media (max-width: 768px) {
+  /* 当弹幕插件挂载到控制栏中心时（横屏，宽度>=512px） */
+  .art-controls-center .artplayer-plugin-danmuku .apd-config-panel,
+  .art-controls-center .artplayer-plugin-danmuku .apd-style-panel {
+    position: absolute !important;
+    left: 10% !important;
+    transform: translateX(-50%) !important;
+    right: auto !important;
+    max-width: calc(100vw - 40px) !important;
+  }
+
+  /* 当弹幕插件挂载到播放器容器时（竖屏，宽度<512px） */
+  .art-video-player .artplayer-plugin-danmuku .apd-config-panel,
+  .art-video-player .artplayer-plugin-danmuku .apd-style-panel {
+    position: absolute !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    right: auto !important;
+    max-width: calc(100vw - 40px) !important;
+  }
+}

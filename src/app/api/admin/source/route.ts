@@ -5,11 +5,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { clearConfigCache, getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
+import { validateProxyTargetUrl } from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 
 // 支持的操作类型
-type Action = 'add' | 'disable' | 'enable' | 'delete' | 'sort' | 'batch_disable' | 'batch_enable' | 'batch_delete';
+type Action = 'add' | 'update' | 'disable' | 'enable' | 'delete' | 'sort' | 'batch_disable' | 'batch_enable' | 'batch_delete' | 'update_adult' | 'batch_mark_adult' | 'batch_unmark_adult' | 'batch_mark_shortdrama' | 'batch_mark_vod' | 'update_weight';
 
 interface BaseBody {
   action?: Action;
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     const username = authInfo.username;
 
     // 基础校验
-    const ACTIONS: Action[] = ['add', 'disable', 'enable', 'delete', 'sort', 'batch_disable', 'batch_enable', 'batch_delete'];
+    const ACTIONS: Action[] = ['add', 'update', 'disable', 'enable', 'delete', 'sort', 'batch_disable', 'batch_enable', 'batch_delete', 'update_adult', 'batch_mark_adult', 'batch_unmark_adult', 'batch_mark_shortdrama', 'batch_mark_vod', 'update_weight'];
     if (!username || !action || !ACTIONS.includes(action)) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
     }
@@ -57,17 +58,30 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'add': {
-        const { key, name, api, detail } = body as {
+        const { key, name, api, detail, is_adult, type, weight } = body as {
           key?: string;
           name?: string;
           api?: string;
           detail?: string;
+          is_adult?: boolean;
+          type?: 'vod' | 'shortdrama';
+          weight?: number;
         };
         if (!key || !name || !api) {
           return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
         }
         if (adminConfig.SourceConfig.some((s) => s.key === key)) {
           return NextResponse.json({ error: '该源已存在' }, { status: 400 });
+        }
+        // 校验采集源地址，拒绝内网/环回等 SSRF 目标，避免管理员（或被盗账号）
+        // 把内部服务地址存进配置，后续被搜索/详情/测速等运行时请求悄悄打到内网
+        try {
+          await validateProxyTargetUrl(api);
+        } catch (err) {
+          return NextResponse.json(
+            { error: `采集源地址不合法：${(err as Error).message}` },
+            { status: 400 }
+          );
         }
         adminConfig.SourceConfig.push({
           key,
@@ -76,7 +90,45 @@ export async function POST(request: NextRequest) {
           detail,
           from: 'custom',
           disabled: false,
+          is_adult: is_adult || false,
+          type: type || 'vod',
+          weight: weight !== undefined ? Math.max(0, Math.min(100, weight)) : 50,
         });
+        break;
+      }
+      case 'update': {
+        const { key, name, api, detail, is_adult, type, weight } = body as {
+          key?: string;
+          name?: string;
+          api?: string;
+          detail?: string;
+          is_adult?: boolean;
+          type?: 'vod' | 'shortdrama';
+          weight?: number;
+        };
+        if (!key) {
+          return NextResponse.json({ error: '缺少 key 参数' }, { status: 400 });
+        }
+        const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+        if (!entry) {
+          return NextResponse.json({ error: '源不存在' }, { status: 404 });
+        }
+        if (api) {
+          try {
+            await validateProxyTargetUrl(api);
+          } catch (err) {
+            return NextResponse.json(
+              { error: `采集源地址不合法：${(err as Error).message}` },
+              { status: 400 }
+            );
+          }
+        }
+        if (name) entry.name = name;
+        if (api) entry.api = api;
+        if (detail !== undefined) entry.detail = detail;
+        if (is_adult !== undefined) entry.is_adult = is_adult;
+        if (type !== undefined) entry.type = type;
+        if (weight !== undefined) entry.weight = Math.max(0, Math.min(100, weight));
         break;
       }
       case 'disable': {
@@ -217,6 +269,85 @@ export async function POST(request: NextRequest) {
           if (map.has(item.key)) newList.push(item);
         });
         adminConfig.SourceConfig = newList;
+        break;
+      }
+      case 'update_adult': {
+        const { key, is_adult } = body as { key?: string; is_adult?: boolean };
+        if (!key) {
+          return NextResponse.json({ error: '缺少 key 参数' }, { status: 400 });
+        }
+        const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+        if (!entry) {
+          return NextResponse.json({ error: '源不存在' }, { status: 404 });
+        }
+        entry.is_adult = is_adult;
+        break;
+      }
+      case 'batch_mark_adult': {
+        const { keys } = body as { keys?: string[] };
+        if (!Array.isArray(keys) || keys.length === 0) {
+          return NextResponse.json({ error: '缺少 keys 参数或为空' }, { status: 400 });
+        }
+        keys.forEach(key => {
+          const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+          if (entry) {
+            entry.is_adult = true;
+          }
+        });
+        break;
+      }
+      case 'batch_unmark_adult': {
+        const { keys } = body as { keys?: string[] };
+        if (!Array.isArray(keys) || keys.length === 0) {
+          return NextResponse.json({ error: '缺少 keys 参数或为空' }, { status: 400 });
+        }
+        keys.forEach(key => {
+          const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+          if (entry) {
+            entry.is_adult = false;
+          }
+        });
+        break;
+      }
+      case 'batch_mark_shortdrama': {
+        const { keys } = body as { keys?: string[] };
+        if (!Array.isArray(keys) || keys.length === 0) {
+          return NextResponse.json({ error: '缺少 keys 参数或为空' }, { status: 400 });
+        }
+        keys.forEach(key => {
+          const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+          if (entry) {
+            entry.type = 'shortdrama';
+          }
+        });
+        break;
+      }
+      case 'batch_mark_vod': {
+        const { keys } = body as { keys?: string[] };
+        if (!Array.isArray(keys) || keys.length === 0) {
+          return NextResponse.json({ error: '缺少 keys 参数或为空' }, { status: 400 });
+        }
+        keys.forEach(key => {
+          const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+          if (entry) {
+            entry.type = 'vod';
+          }
+        });
+        break;
+      }
+      case 'update_weight': {
+        const { key, weight } = body as { key?: string; weight?: number };
+        if (!key) {
+          return NextResponse.json({ error: '缺少 key 参数' }, { status: 400 });
+        }
+        if (weight === undefined || typeof weight !== 'number') {
+          return NextResponse.json({ error: '缺少有效的 weight 参数' }, { status: 400 });
+        }
+        const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+        if (!entry) {
+          return NextResponse.json({ error: '源不存在' }, { status: 404 });
+        }
+        entry.weight = Math.max(0, Math.min(100, weight));
         break;
       }
       default:

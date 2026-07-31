@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 
 import { getConfig } from "@/lib/config";
+import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 
 export const runtime = 'nodejs';
 
@@ -51,13 +52,17 @@ export async function GET(request: Request) {
   }
 
   const config = await getConfig();
-  const liveSource = config.LiveConfig?.find((s: any) => s.key === source);
-  if (!liveSource) {
-    segmentStats.errors++;
-    segmentStats.activeStreams--;
-    return NextResponse.json({ error: 'Source not found' }, { status: 404 });
+  // 点播场景不携带 moontv-source（该参数只用于直播源的 UA 定制），此时使用默认浏览器 UA。
+  let ua = DEFAULT_USER_AGENT;
+  if (source) {
+    const liveSource = config.LiveConfig?.find((s: any) => s.key === source);
+    if (!liveSource) {
+      segmentStats.errors++;
+      segmentStats.activeStreams--;
+      return NextResponse.json({ error: 'Source not found' }, { status: 404 });
+    }
+    ua = liveSource.ua || ua;
   }
-  const ua = liveSource.ua || 'AptvPlayer/1.4.10';
 
   let response: Response | null = null;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
@@ -87,13 +92,21 @@ export async function GET(request: Request) {
 
     if (!response.ok) {
       segmentStats.errors++;
-      return NextResponse.json({ 
-        error: `Failed to fetch segment: ${response.status} ${response.statusText}` 
+      // 改进错误消息，对 401/403 提供更友好的提示
+      const upstreamStatus = response.status;
+      let errorMessage = `Failed to fetch segment: ${response.status} ${response.statusText}`;
+
+      if (upstreamStatus === 401 || upstreamStatus === 403) {
+        errorMessage = `上游资源拒绝访问（${upstreamStatus}），已尝试自动补齐鉴权和防盗链请求头`;
+      }
+
+      return NextResponse.json({
+        error: errorMessage
       }, { status: response.status >= 500 ? 500 : response.status });
     }
 
     const headers = new Headers();
-    
+
     // 设置内容类型 - 更精确的类型判断
     const originalContentType = response?.headers.get('Content-Type');
     if (originalContentType) {
@@ -101,16 +114,21 @@ export async function GET(request: Request) {
     } else {
       headers.set('Content-Type', 'video/mp2t');
     }
-    
+
     headers.set('Access-Control-Allow-Origin', '*');
     headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD');
     headers.set('Access-Control-Allow-Headers', 'Content-Type, Range, Origin, Accept, User-Agent');
     headers.set('Accept-Ranges', 'bytes');
-    headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type, Accept-Ranges');
+    headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type, Accept-Ranges, X-Upstream-Url');
     headers.set('Cache-Control', 'public, max-age=300'); // 5分钟缓存
-    
-    // 复制原始响应的重要头部
-    const importantHeaders = ['Content-Length', 'Content-Range', 'Last-Modified', 'ETag'];
+
+    // 添加上游 URL 头（用于追踪重定向）
+    if (response.url) {
+      headers.set('X-Upstream-Url', response.url);
+    }
+
+    // 复制原始响应的重要头部（不转发 Content-Length，因为流式传输使用 chunked encoding，两者冲突）
+    const importantHeaders = ['Content-Range', 'Last-Modified', 'ETag'];
     importantHeaders.forEach(header => {
       const value = response?.headers.get(header);
       if (value) {

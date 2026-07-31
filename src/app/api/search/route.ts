@@ -5,23 +5,65 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { generateSearchVariants } from '@/lib/downstream';
+import { recordRequest, getDbQueryCount, resetDbQueryCount } from '@/lib/performance-monitor';
+import {
+  buildResolutionFilterFromSearchParams,
+  filterSearchResultsByResolution,
+} from '@/lib/video-quality';
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
+  const startTime = Date.now();
+  const startMemory = process.memoryUsage().heapUsed;
+  resetDbQueryCount();
+
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const errorResponse = { error: 'Unauthorized' };
+    const errorSize = Buffer.byteLength(JSON.stringify(errorResponse), 'utf8');
+
+    recordRequest({
+      timestamp: startTime,
+      method: 'GET',
+      path: '/api/search',
+      statusCode: 401,
+      duration: Date.now() - startTime,
+      memoryUsed: (process.memoryUsage().heapUsed - startMemory) / 1024 / 1024,
+      dbQueries: getDbQueryCount(),
+      requestSize: 0,
+      responseSize: errorSize,
+    });
+
+    return NextResponse.json(errorResponse, { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q');
+  const resolutionFilter = buildResolutionFilterFromSearchParams(searchParams);
 
   if (!query) {
     const cacheTime = await getCacheTime();
+    const successResponse = { results: [] };
+    const responseSize = Buffer.byteLength(JSON.stringify(successResponse), 'utf8');
+
+    recordRequest({
+      timestamp: startTime,
+      method: 'GET',
+      path: '/api/search',
+      statusCode: 200,
+      duration: Date.now() - startTime,
+      memoryUsed: (process.memoryUsage().heapUsed - startMemory) / 1024 / 1024,
+      dbQueries: getDbQueryCount(),
+      requestSize: 0,
+      responseSize,
+      filter: 'empty-query',
+    });
+
     return NextResponse.json(
-      { results: [] },
+      successResponse,
       {
         headers: {
           'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
@@ -36,10 +78,13 @@ export async function GET(request: NextRequest) {
   const config = await getConfig();
   const apiSites = await getAvailableApiSites(authInfo.username);
 
+  // 优化：预计算搜索变体，智能生成（普通查询1个，需要变体的2个）
+  const searchVariants = generateSearchVariants(query);
+
   // 添加超时控制和错误处理，避免慢接口拖累整体响应
   const searchPromises = apiSites.map((site) =>
     Promise.race([
-      searchFromApi(site, query),
+      searchFromApi(site, query, searchVariants), // 传入预计算的变体
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`${site.name} timeout`)), 20000)
       ),
@@ -61,15 +106,50 @@ export async function GET(request: NextRequest) {
         return !yellowWords.some((word: string) => typeName.includes(word));
       });
     }
+
+    // 分辨率过滤（resolution 已在 downstream 解析阶段装饰）
+    flattenedResults = filterSearchResultsByResolution(flattenedResults, resolutionFilter);
     const cacheTime = await getCacheTime();
 
     if (flattenedResults.length === 0) {
       // no cache if empty
-      return NextResponse.json({ results: [] }, { status: 200 });
+      const emptyResponse = { results: [] };
+      const responseSize = Buffer.byteLength(JSON.stringify(emptyResponse), 'utf8');
+
+      recordRequest({
+        timestamp: startTime,
+        method: 'GET',
+        path: '/api/search',
+        statusCode: 200,
+        duration: Date.now() - startTime,
+        memoryUsed: (process.memoryUsage().heapUsed - startMemory) / 1024 / 1024,
+        dbQueries: getDbQueryCount(),
+        requestSize: 0,
+        responseSize,
+        filter: `query:${query}`,
+      });
+
+      return NextResponse.json(emptyResponse, { status: 200 });
     }
 
+    const successResponse = { results: flattenedResults };
+    const responseSize = Buffer.byteLength(JSON.stringify(successResponse), 'utf8');
+
+    recordRequest({
+      timestamp: startTime,
+      method: 'GET',
+      path: '/api/search',
+      statusCode: 200,
+      duration: Date.now() - startTime,
+      memoryUsed: (process.memoryUsage().heapUsed - startMemory) / 1024 / 1024,
+      dbQueries: getDbQueryCount(),
+      requestSize: 0,
+      responseSize,
+      filter: `query:${query}`,
+    });
+
     return NextResponse.json(
-      { results: flattenedResults },
+      successResponse,
       {
         headers: {
           'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
@@ -80,6 +160,21 @@ export async function GET(request: NextRequest) {
       }
     );
   } catch (error) {
-    return NextResponse.json({ error: '搜索失败' }, { status: 500 });
+    const errorResponse = { error: '搜索失败' };
+    const errorSize = Buffer.byteLength(JSON.stringify(errorResponse), 'utf8');
+
+    recordRequest({
+      timestamp: startTime,
+      method: 'GET',
+      path: '/api/search',
+      statusCode: 500,
+      duration: Date.now() - startTime,
+      memoryUsed: (process.memoryUsage().heapUsed - startMemory) / 1024 / 1024,
+      dbQueries: getDbQueryCount(),
+      requestSize: 0,
+      responseSize: errorSize,
+    });
+
+    return NextResponse.json(errorResponse, { status: 500 });
   }
 }

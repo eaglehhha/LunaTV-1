@@ -1,295 +1,263 @@
-# MoonTV
-
-<div align="center">
-  <img src="public/logo.png" alt="MoonTV Logo" width="120">
-</div>
-
-> 🎬 **MoonTV** 是一个开箱即用的、跨平台的影视聚合播放器。它基于 **Next.js 14** + **Tailwind&nbsp;CSS** + **TypeScript** 构建，支持多资源搜索、在线播放、收藏同步、播放记录、云端存储，让你可以随时随地畅享海量免费影视内容。
-
 <div align="center">
 
-![Next.js](https://img.shields.io/badge/Next.js-14-000?logo=nextdotjs)
-![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3-38bdf8?logo=tailwindcss)
-![TypeScript](https://img.shields.io/badge/TypeScript-4.x-3178c6?logo=typescript)
-![License](https://img.shields.io/badge/License-MIT-green)
-![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
+[![English Doc](https://img.shields.io/badge/Doc-English-blue)](README_EN.md)
+[![中文文档](https://img.shields.io/badge/文档-中文-blue)](README.md)
 
 </div>
 
 ---
 
-## ✨ 功能特性
+# LunaTV Enhanced Edition
 
-- 🔍 **多源聚合搜索**：一次搜索立刻返回全源结果。
-- 📄 **丰富详情页**：支持剧集列表、演员、年份、简介等完整信息展示。
-- ▶️ **流畅在线播放**：集成 HLS.js & ArtPlayer。
-- ❤️ **收藏 + 继续观看**：支持 Kvrocks/Redis/Upstash 存储，多端同步进度。
-- 📱 **PWA**：离线缓存、安装到桌面/主屏，移动端原生体验。
-- 🌗 **响应式布局**：桌面侧边栏 + 移动底部导航，自适应各种屏幕尺寸。
-- 👿 **智能去广告**：自动跳过视频中的切片广告（实验性）。
+<div align="center">
+  <img src="public/logo.png" alt="LunaTV Logo" width="120">
+</div>
 
-### 注意：部署后项目为空壳项目，无内置播放源和直播源，需要自行收集
+> 🎬 **LunaTV Enhanced Edition** 是基于 MoonTV 深度二次开发的全功能影视聚合播放平台。在原版基础上新增了 **YouTube 集成**、**网盘搜索**、**AI 推荐**、**短剧功能**、**IPTV 直播**、**Bangumi 动漫**、**播放统计**、**弹幕系统**等 60+ 重大功能增强，打造极致的在线观影体验。
 
-<details>
-  <summary>点击查看项目截图</summary>
-  <img src="public/screenshot1.png" alt="项目截图" style="max-width:600px">
-  <img src="public/screenshot2.png" alt="项目截图" style="max-width:600px">
-  <img src="public/screenshot3.png" alt="项目截图" style="max-width:600px">
-</details>
+<div align="center">
 
-### 请不要在 B站、小红书、微信公众号、抖音、今日头条或其他中国大陆社交平台发布视频或文章宣传本项目，不授权任何“科技周刊/月刊”类项目或站点收录本项目。
+![Next.js](https://img.shields.io/badge/Next.js-16.1.0-000?logo=nextdotjs)
+![React](https://img.shields.io/badge/React-19.0.0-61dafb?logo=react)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.8.3-3178c6?logo=typescript)
+![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.1.18-38bdf8?logo=tailwindcss)
+![ArtPlayer](https://img.shields.io/badge/ArtPlayer-5.4.0-ff6b6b)
+![HLS.js](https://img.shields.io/badge/HLS.js-1.6.16-ec407a)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
+![Version](https://img.shields.io/badge/Version-6.6.3-orange)
 
-## 🗺 目录
+</div>
 
-- [技术栈](#技术栈)
-- [部署](#部署)
-- [配置文件](#配置文件)
-- [自动更新](#自动更新)
-- [环境变量](#环境变量)
-- [AndroidTV 使用](#AndroidTV-使用)
-- [Roadmap](#roadmap)
-- [安全与隐私提醒](#安全与隐私提醒)
-- [License](#license)
-- [致谢](#致谢)
+---
 
-## 技术栈
+## 📢 项目说明
 
-| 分类      | 主要依赖                                                                                              |
-| --------- | ----------------------------------------------------------------------------------------------------- |
-| 前端框架  | [Next.js 14](https://nextjs.org/) · App Router                                                        |
-| UI & 样式 | [Tailwind&nbsp;CSS 3](https://tailwindcss.com/)                                                       |
-| 语言      | TypeScript 4                                                                                          |
-| 播放器    | [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) · [HLS.js](https://github.com/video-dev/hls.js/) |
-| 代码质量  | ESLint · Prettier · Jest                                                                              |
-| 部署      | Docker                                                                    |
+本项目是在 **MoonTV** 基础上进行的深度二次开发版本，从 **v4.3.1** 版本开始，持续迭代至当前 **v6.6.3**，累计新增 60+ 重大功能模块，400+ 细节优化。所有新增功能详见 [CHANGELOG](CHANGELOG)。
 
-## 部署
+## ⚠️ 重要声明
 
-本项目**仅支持 Docker 或其他基于 Docker 的平台** 部署。
+本项目仅供学习交流使用，请勿用于商业用途。所有视频内容均来自第三方平台，本项目不存储任何视频文件。使用本项目产生的任何法律责任由使用者自行承担。
 
-### Kvrocks 存储（推荐）
+## 💡 核心增强亮点
 
-```yml
-services:
-  moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
-    container_name: moontv-core
-    restart: on-failure
-    ports:
-      - '3000:3000'
-    environment:
-      - USERNAME=admin
-      - PASSWORD=admin_password
-      - NEXT_PUBLIC_STORAGE_TYPE=kvrocks
-      - KVROCKS_URL=redis://moontv-kvrocks:6666
-      - AUTH_TOKEN=授权码
-    networks:
-      - moontv-network
-    depends_on:
-      - moontv-kvrocks
-  moontv-kvrocks:
-    image: apache/kvrocks
-    container_name: moontv-kvrocks
-    restart: unless-stopped
-    volumes:
-      - kvrocks-data:/var/lib/kvrocks
-    networks:
-      - moontv-network
-networks:
-  moontv-network:
-    driver: bridge
-volumes:
-  kvrocks-data:
+### 🎥 内容生态扩展
+
+- **多人观影房**：支持同步播放、屏幕共享、实时聊天、语音通话，WebRTC 实时传输，画质预设可调 → [详细文档](docs/deployment/WATCH_ROOM_DEPLOYMENT.md)
+- **Emby 私有库**：完整的 Emby 媒体服务器集成，支持免密登录、认证模式切换和多音轨播放 → [详细文档](docs/integration/EMBY_GUIDE.md)
+- **YouTube 集成**：完整的 YouTube 搜索、播放、直播功能，支持热门视频和地区选择器
+- **Bilibili 集成**：Bilibili 搜索和播放功能，支持 UP主视频、热门视频、QR码登录、Cookie管理
+- **网盘搜索**：集成高级筛选和缓存管理的网盘资源搜索，PanSou 支持身份认证
+- **ACG 种子搜索**：Mikan Project 双源系统 + Nyaa 搜索，支持种子下载链接导出，丰富的动漫资源
+- **IPTV 直播**：m3u/m3u8 订阅、FLV 直播流、EPG 节目单、M3U 导入导出
+- **Bangumi 动漫**：动漫信息智能检测、API 集成
+- **繁体中文搜索**：智能繁简转换、多策略搜索
+- **搜索列表视图**：支持列表/网格双视图模式切换，列表模式带图片预览和快捷播放
+- **豆瓣快速信息面板**：移动端 ActionSheet 接入豆瓣详情，支持 quick-info 和 suggest API
+
+### 🎬 播放器增强
+
+- **TMDB Hero Banner**：播放页以 TMDB backdrop 为主视觉，展示 logo、海报、评分、简介，支持多季徽章
+- **剧集选择器增强**：手动速度测试功能，实时显示源状态徽章（可用/不可用/测试中）
+- **控制栏透明度控制**：可自定义控制栏遮挡度（10-80%），实时调整透明度和模糊效果，改善字幕可见性
+- **快进快退按钮**：可自定义时间间隔的快进快退按钮，Netflix 风格设计，响应式布局
+- **超宽显示器适配**：视频显示模式控制，完美支持超宽显示器
+- **片头片尾跳过预设**：灵活的片头片尾模板系统，支持导入导出和验证
+- **播放速率持久化**：记住播放速率设置，跨会话保持
+- **多音轨支持**：Emby 播放自动选择浏览器兼容音轨，支持音轨切换；支持自定义 X-Emby-Authorization 请求头
+- **视频分辨率筛选**：自动推断视频流分辨率并支持按分辨率筛选源
+
+### 🔔 内容追踪系统
+
+- **即将上映提醒**：完整的即将上映内容关注列表和提醒系统
+- **自动发布通知**：收藏内容发布时自动推送通知
+- **邀请码系统**：支持邀请码注册、历史记录和管理功能
+
+### 🤖 智能推荐系统
+
+- **AI 智能助手**：支持 GPT-5/o 系列模型，流式传输 → [详细文档](docs/features/AI_FEATURES.md)
+- **Tavily 搜索模式**：无需 AI API 的搜索模式
+- **TMDB 演员搜索**：完整的演员搜索、过滤和缓存
+- **发布日历**：即将上映内容预览和跟踪
+
+### 💬 弹幕生态系统
+
+- **第三方弹幕 API**：集成腾讯、爱奇艺、优酷、B站等主流平台
+- **智能性能优化**：分级渲染、Web Worker 加速
+- **手动弹幕匹配**：精准获取对应弹幕
+- **综合设置面板**：完整的弹幕配置
+
+### 📊 性能与监控
+
+- **性能监控仪表板**：完整的 API 性能监控系统
+- **流量监控系统**：真实流量监控、域名分解
+- **播放统计增强**：记录用户登入 IP、归属地（城市/省份/国家）、设备类型、浏览器及操作系统，管理员可在统计面板查看
+- **Kvrocks 持久化**：高性能缓存系统
+- **TanStack Query 全面集成**：
+  - 智能数据缓存和自动重新验证
+  - 无限滚动优化（豆瓣、短剧页面）
+  - 虚拟滚动提升大列表性能
+  - 统一的 API 缓存策略（2小时）
+  - 减少不必要的网络请求和重复渲染
+
+## 🚀 快速开始
+
+### Docker 部署（推荐）
+
+```bash
+# 克隆项目
+git clone https://github.com/SzeMeng76/LunaTV.git
+cd LunaTV
+
+# 复制环境变量配置
+cp .env.example .env
+
+# 编辑 .env 文件，配置必要的环境变量
+nano .env
+
+# 启动服务
+docker-compose up -d
 ```
 
-### Redis 存储（有一定的丢数据风险）
+访问 `http://localhost:3000` 即可使用。
 
-```yml
-services:
-  moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
-    container_name: moontv-core
-    restart: on-failure
-    ports:
-      - '3000:3000'
-    environment:
-      - USERNAME=admin
-      - PASSWORD=admin_password
-      - NEXT_PUBLIC_STORAGE_TYPE=redis
-      - REDIS_URL=redis://moontv-redis:6379
-      - AUTH_TOKEN=授权码
-    networks:
-      - moontv-network
-    depends_on:
-      - moontv-redis
-  moontv-redis:
-    image: redis:alpine
-    container_name: moontv-redis
-    restart: unless-stopped
-    networks:
-      - moontv-network
-    # 请开启持久化，否则升级/重启后数据丢失
-    volumes:
-      - ./data:/data
-networks:
-  moontv-network:
-    driver: bridge
+### 本地开发
+
+```bash
+# 安装依赖
+pnpm install
+
+# 启动开发服务器
+pnpm dev
 ```
 
-### Upstash 存储
+**详细部署指南**：[查看完整部署文档](docs/deployment/DEPLOYMENT.md)
 
-1. 在 [upstash](https://upstash.com/) 注册账号并新建一个 Redis 实例，名称任意。
-2. 复制新数据库的 **HTTPS ENDPOINT 和 TOKEN**
-3. 使用如下 docker compose
-```yml
-services:
-  moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
-    container_name: moontv-core
-    restart: on-failure
-    ports:
-      - '3000:3000'
-    environment:
-      - USERNAME=admin
-      - PASSWORD=admin_password
-      - NEXT_PUBLIC_STORAGE_TYPE=upstash
-      - UPSTASH_URL=上面 https 开头的 HTTPS ENDPOINT
-      - UPSTASH_TOKEN=上面的 TOKEN
-      - AUTH_TOKEN=授权码
-```
+## 📚 文档导航
 
-## 配置文件
+### 核心文档
 
-完成部署后为空壳应用，无播放源，需要站长在管理后台的配置文件设置中填写配置文件（后续会支持订阅）
+- 📖 [完整文档中心](docs/README.md) - 所有文档的导航页
+- 🚀 [部署指南](docs/deployment/DEPLOYMENT.md) - Docker、Vercel 等部署方式
+- ⚙️ [配置说明](docs/deployment/CONFIGURATION.md) - 环境变量和功能配置
+- 📱 [移动端使用](docs/mobile/MOBILE.md) - 移动端 APP 和 AndroidTV 使用
 
-配置文件示例如下：
+### 功能文档
 
-```json
-{
-  "cache_time": 7200,
-  "api_site": {
-    "dyttzy": {
-      "api": "http://xxx.com/api.php/provide/vod",
-      "name": "示例资源",
-      "detail": "http://xxx.com"
-    }
-    // ...更多站点
-  },
-  "custom_category": [
-    {
-      "name": "华语",
-      "type": "movie",
-      "query": "华语"
-    }
-  ]
-}
-```
+- 🤖 [AI 功能详解](docs/features/AI_FEATURES.md)
+- 📥 [下载功能](docs/features/DOWNLOAD_FEATURES.md)
+- 📺 [虚拟滚动指南](docs/features/VIRTUAL_SCROLL_GUIDE.md)
+- 🎥 [观影房部署](docs/deployment/WATCH_ROOM_DEPLOYMENT.md)
 
-- `cache_time`：接口缓存时间（秒）。
-- `api_site`：你可以增删或替换任何资源站，字段说明：
-  - `key`：唯一标识，保持小写字母/数字。
-  - `api`：资源站提供的 `vod` JSON API 根地址。
-  - `name`：在人机界面中展示的名称。
-  - `detail`：（可选）部分无法通过 API 获取剧集详情的站点，需要提供网页详情根 URL，用于爬取。
-- `custom_category`：自定义分类配置，用于在导航中添加个性化的影视分类。以 type + query 作为唯一标识。支持以下字段：
-  - `name`：分类显示名称（可选，如不提供则使用 query 作为显示名）
-  - `type`：分类类型，支持 `movie`（电影）或 `tv`（电视剧）
-  - `query`：搜索关键词，用于在豆瓣 API 中搜索相关内容
+### 集成指南
 
-custom_category 支持的自定义分类已知如下：
+- 🎬 [Emby 集成](docs/integration/EMBY_GUIDE.md)
+- 📺 [TVBox 集成](docs/integration/TVBOX.md)
+- 🔒 [TVBox 安全](docs/integration/TVBOX_SECURITY.md)
 
-- movie：热门、最新、经典、豆瓣高分、冷门佳片、华语、欧美、韩国、日本、动作、喜剧、爱情、科幻、悬疑、恐怖、治愈
-- tv：热门、美剧、英剧、韩剧、日剧、国产剧、港剧、日本动画、综艺、纪录片
+### 认证配置
 
-也可输入如 "哈利波特" 效果等同于豆瓣搜索
+- 🔐 [OIDC 认证](docs/authentication/OIDC_SETUP.md)
+- 💬 [Telegram 认证](docs/authentication/TELEGRAM_AUTH.md)
+- 🌐 [可信网络](docs/authentication/TRUSTED_NETWORK.md)
 
-MoonTV 支持标准的苹果 CMS V10 API 格式。
+### 高级配置
 
-## 自动更新
+- 🔧 [代理配置](docs/advanced/PROXY_CONFIG.md)
+- 🚫 [广告过滤](docs/advanced/CUSTOM_AD_FILTER.md)
+- ⏭️ [跳过控制器](docs/advanced/SKIP_CONTROLLER_GUIDE.md)
 
-可借助 [watchtower](https://github.com/containrrr/watchtower) 自动更新镜像容器
+## 🔧 技术栈
 
-dockge/komodo 等 docker compose UI 也有自动更新功能
+- **前端框架**：Next.js 16.1.0 + React 19.0.0
+- **开发语言**：TypeScript 5.8.3
+- **样式方案**：TailwindCSS 4.1.18
+- **视频播放**：ArtPlayer 5.4.0 + HLS.js 1.6.16
+- **状态管理**：TanStack Query 5.100.14（全面迁移完成，优化数据获取和缓存）
+- **数据库**：Upstash Redis / Kvrocks / SQLite（三种存储后端可选）
+- **部署方案**：Docker / Vercel / Render / 腾讯云 EdgeOne
 
-## 环境变量
+## 📜 更新日志
 
-| 变量                                | 说明                                         | 可选值                           | 默认值                                                                                                                     |
-| ----------------------------------- | -------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| USERNAME                            | 站长账号           | 任意字符串                       | 无默认，必填字段                                                                                                                     |
-| PASSWORD                            | 站长密码           | 任意字符串                       | 无默认，必填字段                                                                                                                     |
-| SITE_BASE                           | 站点 url              |       形如 https://example.com                  | 空                                                                                                                     |
-| NEXT_PUBLIC_SITE_NAME               | 站点名称                                     | 任意字符串                       | MoonTV                                                                                                                     |
-| ANNOUNCEMENT                        | 站点公告                                     | 任意字符串                       | 本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。 |
-| NEXT_PUBLIC_STORAGE_TYPE            | 播放记录/收藏的存储方式                      | redis、kvrocks、upstash | 无默认，必填字段                                                                                                               |
-| KVROCKS_URL                           | kvrocks 连接 url                               | 连接 url                         | 空                                                                                                                         |
-| REDIS_URL                           | redis 连接 url                               | 连接 url                         | 空                                                                                                                         |
-| UPSTASH_URL                         | upstash redis 连接 url                       | 连接 url                         | 空                                                                                                                         |
-| UPSTASH_TOKEN                       | upstash redis 连接 token                     | 连接 token                       | 空                                                                                                                         |
-| NEXT_PUBLIC_SEARCH_MAX_PAGE         | 搜索接口可拉取的最大页数                     | 1-50                             | 5                                                                                                                          |
-| NEXT_PUBLIC_DOUBAN_PROXY_TYPE       | 豆瓣数据源请求方式                           | 见下方                           | direct                                                                                                                     |
-| NEXT_PUBLIC_DOUBAN_PROXY            | 自定义豆瓣数据代理 URL                       | url prefix                       | (空)                                                                                                                       |
-| NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE | 豆瓣图片代理类型                             | 见下方                           | direct                                                                                                                     |
-| NEXT_PUBLIC_DOUBAN_IMAGE_PROXY      | 自定义豆瓣图片代理 URL                       | url prefix                       | (空)                                                                                                                       |
-| NEXT_PUBLIC_DISABLE_YELLOW_FILTER   | 关闭色情内容过滤                             | true/false                       | false                                                                                                                      |
-| NEXT_PUBLIC_FLUID_SEARCH | 是否开启搜索接口流式输出 | true/ false | true |
+查看 [CHANGELOG](CHANGELOG) 了解所有版本更新内容。
 
-NEXT_PUBLIC_DOUBAN_PROXY_TYPE 选项解释：
+## 🔐 安全与隐私
 
-- direct: 由服务器直接请求豆瓣源站
-- cors-proxy-zwei: 浏览器向 cors proxy 请求豆瓣数据，该 cors proxy 由 [Zwei](https://github.com/bestzwei) 搭建
-- cmliussss-cdn-tencent: 浏览器向豆瓣 CDN 请求数据，该 CDN 由 [CMLiussss](https://github.com/cmliu) 搭建，并由腾讯云 cdn 提供加速
-- cmliussss-cdn-ali: 浏览器向豆瓣 CDN 请求数据，该 CDN 由 [CMLiussss](https://github.com/cmliu) 搭建，并由阿里云 cdn 提供加速
-- custom: 用户自定义 proxy，由 NEXT_PUBLIC_DOUBAN_PROXY 定义
+详细的安全配置和隐私保护说明请查看 [安全文档](docs/security/SECURITY.md)。
 
-NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE 选项解释：
+## 📄 License
 
-- direct：由浏览器直接请求豆瓣分配的默认图片域名
-- server：由服务器代理请求豆瓣分配的默认图片域名
-- img3：由浏览器请求豆瓣官方的精品 cdn（阿里云）
-- cmliussss-cdn-tencent：由浏览器请求豆瓣 CDN，该 CDN 由 [CMLiussss](https://github.com/cmliu) 搭建，并由腾讯云 cdn 提供加速
-- cmliussss-cdn-ali：由浏览器请求豆瓣 CDN，该 CDN 由 [CMLiussss](https://github.com/cmliu) 搭建，并由阿里云 cdn 提供加速
-- custom: 用户自定义 proxy，由 NEXT_PUBLIC_DOUBAN_IMAGE_PROXY 定义
+[![CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
-## AndroidTV 使用
+本项目采用 [CC BY-NC-SA 4.0 协议](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans) 开源。
 
-目前该项目可以配合 [OrionTV](https://github.com/zimplexing/OrionTV) 在 Android TV 上使用，可以直接作为 OrionTV 后端
+**这意味着**：
 
-已实现播放记录和网页端同步
+- ✅ 您可以自由地分享、复制和修改本项目
+- ✅ 您必须给予适当的署名，提供指向本许可协议的链接
+- ❌ 您不得将本项目用于商业目的
+- ⚠️ 若您修改、转换或以本项目为基础进行创作，您必须以相同的许可协议分发您的作品
 
-## 安全与隐私提醒
+© 2025-2026 LunaTV Enhanced Edition & Contributors
 
-### 请设置密码保护并关闭公网注册
+基于 [MoonTV](https://github.com/MoonTechLab/LunaTV) 进行二次开发。
 
-为了您的安全和避免潜在的法律风险，我们要求在部署时**强烈建议关闭公网注册**：
+## 🙏 致谢
 
-### 部署要求
+### 原始项目
 
-1. **设置环境变量 `PASSWORD`**：为您的实例设置一个强密码
-2. **仅供个人使用**：请勿将您的实例链接公开分享或传播
-3. **遵守当地法律**：请确保您的使用行为符合当地法律法规
+- [MoonTV](https://github.com/MoonTechLab/LunaTV) — 项目原始版本
+- [Selene](https://github.com/MoonTechLab/Selene) — 官方移动端 APP（iOS / Android 手机）
+- [Selene-TV](https://github.com/MoonTechLab/Selene-TV) — 官方 Android TV 客户端，针对遥控器设备优化
+- [LibreTV](https://github.com/LibreSpark/LibreTV) — 灵感来源
 
-### 重要声明
+### 核心依赖
 
-- 本项目仅供学习和个人使用
-- 请勿将部署的实例用于商业用途或公开服务
-- 如因公开分享导致的任何法律问题，用户需自行承担责任
-- 项目开发者不对用户的使用行为承担任何法律责任
-- 本项目不在中国大陆地区提供服务。如有该项目在向中国大陆地区提供服务，属个人行为。在该地区使用所产生的法律风险及责任，属于用户个人行为，与本项目无关，须自行承担全部责任。特此声明
+- [Next.js](https://nextjs.org/) — React 框架
+- [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) — 强大的网页视频播放器
+- [HLS.js](https://github.com/video-dev/hls.js) — HLS 流媒体支持
+- [TanStack Virtual](https://github.com/TanStack/virtual) — 虚拟滚动组件
+- [Tailwind CSS](https://tailwindcss.com/) — CSS 框架
 
-## License
+### 数据源与服务
 
-[MIT](LICENSE) © 2025 MoonTV & Contributors
+- [豆瓣](https://movie.douban.com/) — 影视信息数据
+- [TMDB](https://www.themoviedb.org/) — 电影数据库
+- [Bangumi](https://bangumi.tv/) — 动漫信息
 
-## 致谢
+### 设计与实现参考
 
-- [ts-nextjs-tailwind-starter](https://github.com/theodorusclarence/ts-nextjs-tailwind-starter) — 项目最初基于该脚手架。
-- [LibreTV](https://github.com/LibreSpark/LibreTV) — 由此启发，站在巨人的肩膀上。
-- [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) — 提供强大的网页视频播放器。
-- [HLS.js](https://github.com/video-dev/hls.js) — 实现 HLS 流媒体在浏览器中的播放支持。
-- [Zwei](https://github.com/bestzwei) — 提供获取豆瓣数据的 cors proxy
-- [CMLiussss](https://github.com/cmliu) — 提供豆瓣 CDN 服务
-- 感谢所有提供免费影视接口的站点。
+本项目在开发过程中参考了以下优秀开源项目的设计思路和实现方案：
 
-## Star History
+- **[MoonTVPlus](https://github.com/mtvpls/MoonTVPlus)** — 观影室同步播放、移动端优化等功能实现参考
+- **[DecoTV](https://github.com/Decohererk/DecoTV)** — TVBox 安全策略、性能优化、UI 设计等实现参考
 
-[![Star History Chart](https://api.star-history.com/svg?repos=MoonTechLab/LunaTV&type=Date)](https://www.star-history.com/#MoonTechLab/LunaTV&Date)
+感谢这些项目及其作者的开源贡献和优秀实现！
+
+### 特别感谢
+
+- 所有提供免费影视接口的站点
+- 开源社区的贡献者们
+- 使用并反馈问题的用户们
+
+---
+
+## 📊 Star History
+
+<a href="https://www.star-history.com/?repos=SzeMeng76%2FLunaTV&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=SzeMeng76/LunaTV&type=date&theme=dark&legend=top-left&sealed_token=iij9XuMQwh5rb8SNAKGkKG5rQoIEeYszjWID7ySfhAdCizmcs0StkAebYFZMZOzsSKDK1sYEu3OfbTZO9KQmhzwxg11xBpI8j_clH-lZWfr14521J0-L7Q" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=SzeMeng76/LunaTV&type=date&legend=top-left&sealed_token=iij9XuMQwh5rb8SNAKGkKG5rQoIEeYszjWID7ySfhAdCizmcs0StkAebYFZMZOzsSKDK1sYEu3OfbTZO9KQmhzwxg11xBpI8j_clH-lZWfr14521J0-L7Q" />
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=SzeMeng76/LunaTV&type=date&legend=top-left&sealed_token=iij9XuMQwh5rb8SNAKGkKG5rQoIEeYszjWID7ySfhAdCizmcs0StkAebYFZMZOzsSKDK1sYEu3OfbTZO9KQmhzwxg11xBpI8j_clH-lZWfr14521J0-L7Q" />
+  </picture>
+</a>
+
+---
+
+<div align="center">
+
+**如果这个项目对你有帮助，请给个 ⭐ Star 支持一下！**
+
+Made with ❤️ by LunaTV Enhanced Edition Team
+
+</div>

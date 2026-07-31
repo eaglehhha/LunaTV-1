@@ -15,7 +15,7 @@ interface TVBoxSecurityConfigProps {
 const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  
+
   const [securitySettings, setSecuritySettings] = useState({
     enableAuth: false,
     token: '',
@@ -25,8 +25,19 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
     rateLimit: 60
   });
 
+  const [proxySettings, setProxySettings] = useState({
+    enabled: false,
+    proxyUrl: 'https://corsapi.smone.workers.dev'
+  });
+
+  const [customJarUrl, setCustomJarUrl] = useState('');
+  const [isTestingJar, setIsTestingJar] = useState(false);
+  const [jarTestResult, setJarTestResult] = useState<any>(null);
+
   const [newIP, setNewIP] = useState('');
   const [showToken, setShowToken] = useState(false);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [diagnoseResult, setDiagnoseResult] = useState<any>(null);
 
   // 从config加载设置
   useEffect(() => {
@@ -45,6 +56,19 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
         ...prev,
         token: prev.token || generateToken()
       }));
+    }
+
+    // 加载代理配置
+    if (config?.TVBoxProxyConfig) {
+      setProxySettings({
+        enabled: config.TVBoxProxyConfig.enabled ?? false,
+        proxyUrl: config.TVBoxProxyConfig.proxyUrl || 'https://corsapi.smone.workers.dev'
+      });
+    }
+
+    // 加载自定义 JAR URL
+    if (config?.CustomSpiderJar) {
+      setCustomJarUrl(config.CustomSpiderJar);
     }
   }, [config]);
 
@@ -67,7 +91,7 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
   // 保存配置
   const handleSave = async () => {
     setIsLoading(true);
-    
+
     try {
       // 验证IP地址格式
       for (const ip of securitySettings.allowedIPs) {
@@ -82,7 +106,28 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
         return;
       }
 
-      const response = await fetch('/api/admin/tvbox-security', {
+      // 验证代理URL
+      if (proxySettings.enabled && proxySettings.proxyUrl) {
+        try {
+          new URL(proxySettings.proxyUrl);
+        } catch {
+          showMessage('error', '代理URL格式不正确');
+          return;
+        }
+      }
+
+      // 验证自定义 JAR URL
+      if (customJarUrl) {
+        try {
+          new URL(customJarUrl);
+        } catch {
+          showMessage('error', '自定义 JAR URL 格式不正确');
+          return;
+        }
+      }
+
+      // 保存安全配置
+      const securityResponse = await fetch('/api/admin/tvbox-security', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -90,12 +135,40 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
         body: JSON.stringify(securitySettings),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || '保存失败');
+      if (!securityResponse.ok) {
+        const errorData = await securityResponse.json();
+        throw new Error(errorData.error || '保存安全配置失败');
       }
 
-      showMessage('success', 'TVBox安全配置保存成功！');
+      // 保存代理配置
+      const proxyResponse = await fetch('/api/admin/tvbox-proxy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(proxySettings),
+      });
+
+      if (!proxyResponse.ok) {
+        const errorData = await proxyResponse.json();
+        throw new Error(errorData.error || '保存代理配置失败');
+      }
+
+      // 保存自定义 JAR URL
+      const jarResponse = await fetch('/api/tvbox/custom-jar', {
+        method: customJarUrl ? 'POST' : 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: customJarUrl ? JSON.stringify({ jarUrl: customJarUrl }) : undefined,
+      });
+
+      if (!jarResponse.ok) {
+        const errorData = await jarResponse.json();
+        throw new Error(errorData.error || '保存自定义 JAR 配置失败');
+      }
+
+      showMessage('success', 'TVBox配置保存成功！');
       await refreshConfig();
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : '保存失败');
@@ -104,18 +177,95 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
     }
   };
 
-  // 验证IP地址或CIDR格式
+  // 测试自定义 JAR URL
+  const handleTestJar = async () => {
+    if (!customJarUrl.trim()) {
+      showMessage('error', '请输入 JAR URL');
+      return;
+    }
+
+    setIsTestingJar(true);
+    setJarTestResult(null);
+
+    try {
+      const startTime = Date.now();
+      const proxyUrl = `/api/proxy/spider.jar?url=${encodeURIComponent(customJarUrl)}&refresh=1`;
+      const response = await fetch(proxyUrl, { method: 'HEAD' });
+      const responseTime = Date.now() - startTime;
+
+      const result = {
+        success: response.ok,
+        url: customJarUrl,
+        statusCode: response.status,
+        responseTime: responseTime,
+        size: response.headers.get('content-length'),
+        source: response.headers.get('x-spider-source'),
+        cached: response.headers.get('x-spider-cached'),
+        spiderSuccess: response.headers.get('x-spider-success'),
+        error: response.ok ? null : `HTTP ${response.status}: ${response.statusText}`,
+      };
+
+      setJarTestResult(result);
+
+      if (result.success) {
+        showMessage('success', '自定义 JAR 测试成功！');
+      } else {
+        showMessage('error', '自定义 JAR 测试失败');
+      }
+    } catch (error) {
+      const result = {
+        success: false,
+        url: customJarUrl,
+        error: error instanceof Error ? error.message : '未知错误',
+      };
+      setJarTestResult(result);
+      showMessage('error', '测试失败：' + result.error);
+    } finally {
+      setIsTestingJar(false);
+    }
+  };
+
+  // 验证IP地址或CIDR格式（支持 IPv4 和 IPv6）
   function isValidIPOrCIDR(ip: string): boolean {
-    // 简单的IP地址验证
-    const ipRegex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
-    const parts = ip.split('/')[0].split('.');
-    
-    if (!ipRegex.test(ip)) return false;
-    
-    return parts.every(part => {
-      const num = parseInt(part, 10);
-      return num >= 0 && num <= 255;
-    });
+    const trimmed = ip.trim();
+
+    // 允许通配符
+    if (trimmed === '*') return true;
+
+    // 分离 IP 和 CIDR 掩码
+    const [ipPart, maskPart] = trimmed.split('/');
+
+    // IPv4 正则
+    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+    // IPv6 正则（简化版，支持常见格式）
+    const ipv6Regex = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$|^::([0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{0,4}$|^([0-9a-fA-F]{1,4}:){1,6}:$|^::$/;
+
+    const isIPv4 = ipv4Regex.test(ipPart);
+    const isIPv6 = ipv6Regex.test(ipPart);
+
+    if (!isIPv4 && !isIPv6) return false;
+
+    // 验证 IPv4 地址的每个部分是否在 0-255 范围内
+    if (isIPv4) {
+      const parts = ipPart.split('.');
+      for (const part of parts) {
+        const num = parseInt(part, 10);
+        if (isNaN(num) || num < 0 || num > 255) {
+          return false;
+        }
+      }
+    }
+
+    // 验证子网掩码位数
+    if (maskPart) {
+      const mask = parseInt(maskPart, 10);
+      if (isNaN(mask) || mask < 0) return false;
+      // IPv4 掩码 0-32，IPv6 掩码 0-128
+      if (isIPv4 && mask > 32) return false;
+      if (isIPv6 && mask > 128) return false;
+    }
+
+    return true;
   }
 
   // 添加IP地址
@@ -123,7 +273,7 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
     if (!newIP.trim()) return;
     
     if (!isValidIPOrCIDR(newIP.trim())) {
-      showMessage('error', '请输入有效的IP地址或CIDR格式 (例如: 192.168.1.100 或 192.168.1.0/24)');
+      showMessage('error', '请输入有效的IP地址或CIDR格式 (例如: 192.168.1.100, 192.168.1.0/24, 2001:db8::1, 2001:db8::/32)');
       return;
     }
     
@@ -157,19 +307,51 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
   const generateExampleURL = () => {
     const baseUrl = window.location.origin;
     let url = `${baseUrl}/api/tvbox`;
-    
+
     if (securitySettings.enableAuth) {
       url += `?token=${securitySettings.token}`;
     }
-    
+
     return url;
   };
 
+  // 诊断配置
+  const handleDiagnose = async () => {
+    setIsDiagnosing(true);
+    setDiagnoseResult(null);
+
+    try {
+      // 如果有 token，就传递（无论是否启用验证）
+      let diagnoseUrl = '/api/tvbox/diagnose';
+      if (securitySettings.token) {
+        diagnoseUrl += `?token=${encodeURIComponent(securitySettings.token)}`;
+      }
+
+      console.log('[Diagnose] Frontend - Token:', securitySettings.token);
+      console.log('[Diagnose] Frontend - Calling URL:', diagnoseUrl);
+
+      const response = await fetch(diagnoseUrl);
+      const result = await response.json();
+
+      setDiagnoseResult(result);
+
+      if (result.pass) {
+        showMessage('success', '配置诊断通过！所有检查项正常');
+      } else {
+        showMessage('error', `发现 ${result.issues?.length || 0} 个问题`);
+      }
+    } catch (error) {
+      showMessage('error', '诊断失败：' + (error instanceof Error ? error.message : '未知错误'));
+    } finally {
+      setIsDiagnosing(false);
+    }
+  };
+
   return (
-    <div className='bg-white dark:bg-gray-800 rounded-lg shadow-md p-6'>
+    <div className='bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 sm:p-6 overflow-hidden'>
       <div className='flex items-center gap-3 mb-6'>
-        <Shield className='h-6 w-6 text-blue-600' />
-        <h2 className='text-xl font-bold text-gray-900 dark:text-gray-100'>
+        <Shield className='h-5 w-5 sm:h-6 sm:w-6 text-blue-600 flex-shrink-0' />
+        <h2 className='text-lg sm:text-xl font-bold text-gray-900 dark:text-gray-100'>
           TVBox 安全配置
         </h2>
       </div>
@@ -192,16 +374,16 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
       <div className='space-y-6'>
         {/* Token验证 */}
         <div className='border border-gray-200 dark:border-gray-700 rounded-lg p-4'>
-          <div className='flex items-center justify-between mb-4'>
-            <div>
-              <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+          <div className='flex items-start sm:items-center justify-between gap-3 mb-4'>
+            <div className='min-w-0 flex-1'>
+              <h3 className='text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100'>
                 Token 验证
               </h3>
-              <p className='text-sm text-gray-600 dark:text-gray-400'>
+              <p className='text-xs sm:text-sm text-gray-600 dark:text-gray-400'>
                 要求TVBox在URL中携带token参数才能访问
               </p>
             </div>
-            <label className='relative inline-flex items-center cursor-pointer'>
+            <label className='relative inline-flex items-center cursor-pointer flex-shrink-0'>
               <input
                 type='checkbox'
                 checked={securitySettings.enableAuth}
@@ -219,42 +401,42 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
                   访问Token
                 </label>
                 <div className='space-y-2'>
-                  {/* Token 输入框 */}
-                  <div className='flex gap-2'>
+                  {/* Token 输入框 - 移动端堆叠 */}
+                  <div className='flex flex-col sm:flex-row gap-2'>
                     <input
                       type={showToken ? 'text' : 'password'}
                       value={securitySettings.token}
                       onChange={(e) => setSecuritySettings(prev => ({ ...prev, token: e.target.value }))}
-                      className='flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm break-all'
+                      className='w-full sm:flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm'
                     />
                     <button
                       type="button"
                       onClick={() => setShowToken(!showToken)}
-                      className='px-3 py-2 text-sm bg-gray-100 dark:bg-gray-600 hover:bg-gray-200 dark:hover:bg-gray-500 rounded-lg whitespace-nowrap'
+                      className='w-full sm:w-auto px-3 py-2 text-sm bg-gray-100 dark:bg-gray-600 hover:bg-gray-200 dark:hover:bg-gray-500 rounded-lg whitespace-nowrap flex-shrink-0'
                     >
                       {showToken ? '隐藏' : '显示'}
                     </button>
                   </div>
-                  
+
                   {/* 操作按钮 - 响应式布局 */}
-                  <div className='flex flex-col sm:flex-row gap-2'>
+                  <div className='grid grid-cols-2 sm:flex sm:flex-row gap-2'>
                     <button
                       type="button"
                       onClick={copyToken}
-                      className='flex-1 sm:flex-none px-4 py-2 text-sm bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 rounded-lg flex items-center justify-center gap-2 transition-colors'
+                      className='px-3 sm:px-4 py-2 text-sm bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 rounded-lg flex items-center justify-center gap-1.5 sm:gap-2 transition-colors'
                     >
-                      <Copy className='h-4 w-4' />
-                      复制Token
+                      <Copy className='h-4 w-4 flex-shrink-0' />
+                      <span className='truncate'>复制</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setSecuritySettings(prev => ({ ...prev, token: generateToken() }))}
-                      className='flex-1 sm:flex-none px-4 py-2 text-sm bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 text-green-700 dark:text-green-300 rounded-lg flex items-center justify-center gap-2 transition-colors'
+                      className='px-3 sm:px-4 py-2 text-sm bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 text-green-700 dark:text-green-300 rounded-lg flex items-center justify-center gap-1.5 sm:gap-2 transition-colors'
                     >
-                      <svg className='h-4 w-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                      <svg className='h-4 w-4 flex-shrink-0' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
                         <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15' />
                       </svg>
-                      重新生成
+                      <span className='truncate'>重新生成</span>
                     </button>
                   </div>
                 </div>
@@ -265,16 +447,16 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
 
         {/* IP白名单 */}
         <div className='border border-gray-200 dark:border-gray-700 rounded-lg p-4'>
-          <div className='flex items-center justify-between mb-4'>
-            <div>
-              <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+          <div className='flex items-start sm:items-center justify-between gap-3 mb-4'>
+            <div className='min-w-0 flex-1'>
+              <h3 className='text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100'>
                 IP 白名单
               </h3>
-              <p className='text-sm text-gray-600 dark:text-gray-400'>
+              <p className='text-xs sm:text-sm text-gray-600 dark:text-gray-400'>
                 只允许指定IP地址访问TVBox接口
               </p>
             </div>
-            <label className='relative inline-flex items-center cursor-pointer'>
+            <label className='relative inline-flex items-center cursor-pointer flex-shrink-0'>
               <input
                 type='checkbox'
                 checked={securitySettings.enableIpWhitelist}
@@ -287,32 +469,32 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
 
           {securitySettings.enableIpWhitelist && (
             <div className='space-y-3'>
-              <div className='flex gap-2'>
+              <div className='flex flex-col sm:flex-row gap-2'>
                 <input
                   type='text'
                   value={newIP}
                   onChange={(e) => setNewIP(e.target.value)}
-                  placeholder='192.168.1.100 或 192.168.1.0/24'
+                  placeholder='192.168.1.100 或 2001:db8::1'
                   className='flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
                   onKeyDown={(e) => e.key === 'Enter' && addIP()}
                 />
                 <button
                   type="button"
                   onClick={addIP}
-                  className='px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg'
+                  className='w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg whitespace-nowrap'
                 >
                   添加
                 </button>
               </div>
-              
+
               {securitySettings.allowedIPs.length > 0 && (
                 <div className='space-y-2'>
                   {securitySettings.allowedIPs.map((ip, index) => (
-                    <div key={index} className='flex items-center justify-between bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded'>
-                      <span className='text-gray-900 dark:text-gray-100'>{ip}</span>
+                    <div key={index} className='flex items-center justify-between gap-2 bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded'>
+                      <span className='text-gray-900 dark:text-gray-100 break-all min-w-0 flex-1 text-sm'>{ip}</span>
                       <button
                         onClick={() => removeIP(index)}
-                        className='text-red-600 hover:text-red-800 text-sm'
+                        className='text-red-600 hover:text-red-800 text-sm flex-shrink-0'
                       >
                         删除
                       </button>
@@ -322,7 +504,7 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
               )}
               
               <p className='text-xs text-gray-500 dark:text-gray-400'>
-                支持单个IP (192.168.1.100) 和CIDR格式 (192.168.1.0/24)
+                支持 IPv4 (192.168.1.100)、IPv6 (2001:db8::1) 和 CIDR 格式 (192.168.1.0/24, 2001:db8::/32)
               </p>
             </div>
           )}
@@ -330,16 +512,16 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
 
         {/* 频率限制 */}
         <div className='border border-gray-200 dark:border-gray-700 rounded-lg p-4'>
-          <div className='flex items-center justify-between mb-4'>
-            <div>
-              <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+          <div className='flex items-start sm:items-center justify-between gap-3 mb-4'>
+            <div className='min-w-0 flex-1'>
+              <h3 className='text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100'>
                 访问频率限制
               </h3>
-              <p className='text-sm text-gray-600 dark:text-gray-400'>
+              <p className='text-xs sm:text-sm text-gray-600 dark:text-gray-400'>
                 限制每个IP每分钟的访问次数，防止滥用
               </p>
             </div>
-            <label className='relative inline-flex items-center cursor-pointer'>
+            <label className='relative inline-flex items-center cursor-pointer flex-shrink-0'>
               <input
                 type='checkbox'
                 checked={securitySettings.enableRateLimit}
@@ -370,6 +552,70 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
           )}
         </div>
 
+        {/* CDN代理配置 */}
+        <div className='border border-gray-200 dark:border-gray-700 rounded-lg p-4'>
+          <div className='flex items-start sm:items-center justify-between gap-3 mb-4'>
+            <div className='min-w-0 flex-1'>
+              <h3 className='text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100'>
+                Cloudflare Worker 代理
+              </h3>
+              <p className='text-xs sm:text-sm text-gray-600 dark:text-gray-400'>
+                为TVBox配置启用Cloudflare全球CDN加速
+              </p>
+            </div>
+            <label className='relative inline-flex items-center cursor-pointer flex-shrink-0'>
+              <input
+                type='checkbox'
+                checked={proxySettings.enabled}
+                onChange={(e) => setProxySettings(prev => ({ ...prev, enabled: e.target.checked }))}
+                className='sr-only peer'
+              />
+              <div className="w-11 h-6 bg-gray-200 dark:bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+
+          {proxySettings.enabled && (
+            <div className='space-y-3'>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'>
+                  Cloudflare Worker 地址
+                </label>
+                <input
+                  type='text'
+                  value={proxySettings.proxyUrl}
+                  onChange={(e) => setProxySettings(prev => ({ ...prev, proxyUrl: e.target.value }))}
+                  placeholder='https://your-worker.workers.dev'
+                  className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                />
+                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                  默认地址：https://corsapi.smone.workers.dev（支持自定义部署）
+                </p>
+              </div>
+
+              <div className='bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3'>
+                <h4 className='text-sm font-semibold text-blue-900 dark:text-blue-300 mb-2'>
+                  💡 功能说明
+                </h4>
+                <ul className='text-xs text-blue-800 dark:text-blue-300 space-y-1'>
+                  <li>• 通过Cloudflare全球CDN加速视频源API访问</li>
+                  <li>• 自动转发TVBox的所有API参数（ac=list, ac=detail等）</li>
+                  <li>• 为每个源生成唯一路径，提升兼容性</li>
+                  <li>• 支持自定义Worker地址，可部署自己的代理服务</li>
+                </ul>
+              </div>
+
+              <div className='bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3'>
+                <h4 className='text-sm font-semibold text-yellow-900 dark:text-yellow-300 mb-2'>
+                  ⚠️ 部署说明
+                </h4>
+                <p className='text-xs text-yellow-800 dark:text-yellow-300'>
+                  如需自定义部署，请参考：<a href='https://github.com/SzeMeng76/CORSAPI' target='_blank' rel='noopener noreferrer' className='underline hover:text-yellow-600'>CORSAPI项目</a>
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* URL示例 */}
         <div className='bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4'>
           <h3 className='text-sm font-semibold text-blue-900 dark:text-blue-300 mb-2'>
@@ -377,39 +623,315 @@ const TVBoxSecurityConfig = ({ config, refreshConfig }: TVBoxSecurityConfigProps
           </h3>
           <div className='space-y-2'>
             {/* URL显示区域 */}
-            <div className='bg-white dark:bg-gray-800 px-3 py-2 rounded border'>
+            <div className='bg-white dark:bg-gray-800 px-3 py-2 rounded border overflow-x-auto'>
               <code className='block text-sm text-gray-900 dark:text-gray-100 break-all leading-relaxed'>
                 {generateExampleURL()}
               </code>
             </div>
-            
-            {/* 操作按钮 */}
-            <div className='flex flex-col sm:flex-row gap-2'>
+
+            {/* 操作按钮 - 移动端使用grid布局 */}
+            <div className='grid grid-cols-3 sm:flex sm:flex-row gap-2'>
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(generateExampleURL());
                   showMessage('success', 'URL已复制到剪贴板');
                 }}
-                className='flex-1 sm:flex-none px-4 py-2 text-sm bg-blue-100 dark:bg-blue-800 hover:bg-blue-200 dark:hover:bg-blue-700 text-blue-700 dark:text-blue-300 rounded-lg flex items-center justify-center gap-2 transition-colors'
+                className='px-2 sm:px-4 py-2 text-xs sm:text-sm bg-blue-100 dark:bg-blue-800 hover:bg-blue-200 dark:hover:bg-blue-700 text-blue-700 dark:text-blue-300 rounded-lg flex items-center justify-center gap-1 sm:gap-2 transition-colors'
               >
-                <Copy className='h-4 w-4' />
-                复制URL
+                <Copy className='h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0' />
+                <span className='truncate'>复制</span>
               </button>
               <a
                 href={generateExampleURL()}
                 target='_blank'
                 rel='noopener noreferrer'
-                className='flex-1 sm:flex-none px-4 py-2 text-sm bg-green-100 dark:bg-green-800 hover:bg-green-200 dark:hover:bg-green-700 text-green-700 dark:text-green-300 rounded-lg flex items-center justify-center gap-2 transition-colors'
+                className='px-2 sm:px-4 py-2 text-xs sm:text-sm bg-green-100 dark:bg-green-800 hover:bg-green-200 dark:hover:bg-green-700 text-green-700 dark:text-green-300 rounded-lg flex items-center justify-center gap-1 sm:gap-2 transition-colors'
               >
-                <ExternalLink className='h-4 w-4' />
-                测试访问
+                <ExternalLink className='h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0' />
+                <span className='truncate'>测试</span>
               </a>
+              <button
+                onClick={handleDiagnose}
+                disabled={isDiagnosing}
+                className='px-2 sm:px-4 py-2 text-xs sm:text-sm bg-purple-100 dark:bg-purple-800 hover:bg-purple-200 dark:hover:bg-purple-700 disabled:opacity-50 text-purple-700 dark:text-purple-300 rounded-lg flex items-center justify-center gap-1 sm:gap-2 transition-colors'
+              >
+                <svg className='h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                  <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' />
+                </svg>
+                <span className='truncate'>{isDiagnosing ? '诊断中' : '诊断'}</span>
+              </button>
             </div>
           </div>
           
           <p className='text-xs text-blue-700 dark:text-blue-400 mt-3'>
             💡 在TVBox中导入此URL即可使用。Base64格式请在URL后添加 &format=base64
           </p>
+        </div>
+
+        {/* 诊断结果 */}
+        {diagnoseResult && (
+          <div className={`border rounded-lg p-4 ${
+            diagnoseResult.pass
+              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+              : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+          }`}>
+            <div className='flex items-center gap-2 mb-3'>
+              {diagnoseResult.pass ? (
+                <CheckCircle className='h-5 w-5 text-green-600 dark:text-green-400' />
+              ) : (
+                <AlertCircle className='h-5 w-5 text-yellow-600 dark:text-yellow-400' />
+              )}
+              <h3 className={`text-sm font-semibold ${
+                diagnoseResult.pass
+                  ? 'text-green-900 dark:text-green-300'
+                  : 'text-yellow-900 dark:text-yellow-300'
+              }`}>
+                诊断结果 {diagnoseResult.pass ? '✓ 通过' : '⚠ 发现问题'}
+              </h3>
+            </div>
+
+            <div className='space-y-2 text-sm'>
+              {/* 基本信息 */}
+              <div className='grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-1'>
+                <div className='text-gray-600 dark:text-gray-400'>状态码:</div>
+                <div className='text-gray-900 dark:text-gray-100 mb-1 sm:mb-0'>{diagnoseResult.status}</div>
+
+                <div className='text-gray-600 dark:text-gray-400'>Content-Type:</div>
+                <div className='text-gray-900 dark:text-gray-100 text-xs break-all mb-1 sm:mb-0'>{diagnoseResult.contentType || 'N/A'}</div>
+
+                <div className='text-gray-600 dark:text-gray-400'>JSON解析:</div>
+                <div className='text-gray-900 dark:text-gray-100 mb-1 sm:mb-0'>
+                  {diagnoseResult.hasJson ? (
+                    <span className='text-green-600 dark:text-green-400'>✓ 成功</span>
+                  ) : (
+                    <span className='text-red-600 dark:text-red-400'>✗ 失败</span>
+                  )}
+                </div>
+
+                <div className='text-gray-600 dark:text-gray-400'>接收到的Token:</div>
+                <div className='text-gray-900 dark:text-gray-100 break-all mb-1 sm:mb-0'>{diagnoseResult.receivedToken || 'none'}</div>
+
+                <div className='text-gray-600 dark:text-gray-400'>配置大小:</div>
+                <div className='text-gray-900 dark:text-gray-100 mb-1 sm:mb-0'>{diagnoseResult.size} 字节</div>
+
+                <div className='text-gray-600 dark:text-gray-400'>影视源数量:</div>
+                <div className='text-gray-900 dark:text-gray-100 mb-1 sm:mb-0'>{diagnoseResult.sitesCount}</div>
+
+                <div className='text-gray-600 dark:text-gray-400'>直播源数量:</div>
+                <div className='text-gray-900 dark:text-gray-100 mb-1 sm:mb-0'>{diagnoseResult.livesCount}</div>
+
+                <div className='text-gray-600 dark:text-gray-400'>解析源数量:</div>
+                <div className='text-gray-900 dark:text-gray-100 mb-1 sm:mb-0'>{diagnoseResult.parsesCount}</div>
+
+                {diagnoseResult.privateApis !== undefined && (
+                  <>
+                    <div className='text-gray-600 dark:text-gray-400'>私网API数量:</div>
+                    <div className='text-gray-900 dark:text-gray-100 mb-1 sm:mb-0'>
+                      {diagnoseResult.privateApis > 0 ? (
+                        <span className='text-yellow-600 dark:text-yellow-400'>{diagnoseResult.privateApis}</span>
+                      ) : (
+                        <span className='text-green-600 dark:text-green-400'>0</span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* 配置URL */}
+              {diagnoseResult.configUrl && (
+                <div className='mt-3 pt-3 border-t border-gray-200 dark:border-gray-700'>
+                  <div className='text-gray-600 dark:text-gray-400 mb-1'>配置URL:</div>
+                  <div className='text-xs text-gray-900 dark:text-gray-100 break-all bg-white dark:bg-gray-800 p-2 rounded font-mono'>
+                    {diagnoseResult.configUrl}
+                  </div>
+                </div>
+              )}
+
+              {/* Spider 信息 */}
+              {diagnoseResult.spider && (
+                <div className='mt-3 pt-3 border-t border-gray-200 dark:border-gray-700'>
+                  <div className='text-gray-600 dark:text-gray-400 mb-1'>Spider JAR:</div>
+                  <div className='text-xs text-gray-900 dark:text-gray-100 break-all bg-white dark:bg-gray-800 p-2 rounded'>
+                    {diagnoseResult.spider}
+                  </div>
+                  <div className='mt-2 space-y-1'>
+                    {diagnoseResult.spiderPrivate !== undefined && (
+                      <div className='text-xs'>
+                        {diagnoseResult.spiderPrivate ? (
+                          <span className='text-yellow-600 dark:text-yellow-400'>⚠ Spider 是私网地址</span>
+                        ) : (
+                          <span className='text-green-600 dark:text-green-400'>✓ Spider 是公网地址</span>
+                        )}
+                      </div>
+                    )}
+                    {diagnoseResult.spiderReachable !== undefined && (
+                      <div className='text-xs'>
+                        {diagnoseResult.spiderReachable ? (
+                          <span className='text-green-600 dark:text-green-400'>
+                            ✓ Spider 可访问
+                            {diagnoseResult.spiderStatus && ` (状态码: ${diagnoseResult.spiderStatus})`}
+                          </span>
+                        ) : (
+                          <span className='text-red-600 dark:text-red-400'>
+                            ✗ Spider 不可访问
+                            {diagnoseResult.spiderStatus && ` (状态码: ${diagnoseResult.spiderStatus})`}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {diagnoseResult.spiderSizeKB !== undefined && (
+                      <div className='text-xs'>
+                        <span className={diagnoseResult.spiderSizeKB < 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400'}>
+                          {diagnoseResult.spiderSizeKB < 50 ? '⚠' : '✓'} 文件大小: {diagnoseResult.spiderSizeKB}KB
+                        </span>
+                      </div>
+                    )}
+                    {diagnoseResult.spiderLastModified && (
+                      <div className='text-xs text-gray-600 dark:text-gray-400'>
+                        最后修改: {new Date(diagnoseResult.spiderLastModified).toLocaleString('zh-CN')}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Spider Jar 状态（新增）*/}
+                  {((diagnoseResult as any).spider_url || (diagnoseResult as any).spider_md5) && (
+                    <div className='mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs'>
+                      <div className='font-medium text-blue-800 dark:text-blue-200 mb-1'>Spider Jar 状态:</div>
+                      <div className='space-y-0.5 text-blue-700 dark:text-blue-300'>
+                        {(diagnoseResult as any).spider_url && (
+                          <div className='break-all'>• 来源: {(diagnoseResult as any).spider_url}</div>
+                        )}
+                        {(diagnoseResult as any).spider_md5 && (
+                          <div className='break-all'>• MD5: {(diagnoseResult as any).spider_md5}</div>
+                        )}
+                        {(diagnoseResult as any).spider_cached !== undefined && (
+                          <div>• 缓存: {(diagnoseResult as any).spider_cached ? '✓ 是' : '✗ 否（实时下载）'}</div>
+                        )}
+                        {(diagnoseResult as any).spider_real_size !== undefined && (
+                          <div>• 真实大小: {Math.round((diagnoseResult as any).spider_real_size / 1024)}KB</div>
+                        )}
+                        {(diagnoseResult as any).spider_tried !== undefined && (
+                          <div>• 尝试次数: {(diagnoseResult as any).spider_tried}</div>
+                        )}
+                        {(diagnoseResult as any).spider_success !== undefined && (
+                          <div>• 状态: {(diagnoseResult as any).spider_success ? '✓ 成功' : '✗ 降级（使用fallback jar）'}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 备用代理地址（新增）*/}
+                  {(diagnoseResult as any).spider_backup && (
+                    <div className='mt-2 p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs'>
+                      <div className='text-gray-600 dark:text-gray-400 mb-1'>备用代理地址:</div>
+                      <div className='text-gray-900 dark:text-gray-100 break-all font-mono'>
+                        {(diagnoseResult as any).spider_backup}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 问题列表 */}
+              {diagnoseResult.issues && diagnoseResult.issues.length > 0 && (
+                <div className='mt-3 pt-3 border-t border-yellow-200 dark:border-yellow-800'>
+                  <div className='text-yellow-900 dark:text-yellow-300 font-medium mb-2'>发现以下问题:</div>
+                  <ul className='list-disc list-inside space-y-1 text-yellow-800 dark:text-yellow-400'>
+                    {diagnoseResult.issues.map((issue: string, idx: number) => (
+                      <li key={idx}>{issue}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 自定义 JAR URL 配置 */}
+        <div className='bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border border-purple-200 dark:border-purple-700 rounded-lg p-4'>
+          <h3 className='text-sm font-semibold text-purple-900 dark:text-purple-300 mb-2'>
+            🔧 自定义 Spider JAR URL
+          </h3>
+          <p className='text-xs text-purple-700 dark:text-purple-300 mb-3'>
+            配置自定义 JAR 文件地址（如上传到国内网盘），所有请求将通过本地代理处理
+          </p>
+
+          <div className='space-y-3'>
+            <div className='flex flex-col sm:flex-row gap-2'>
+              <input
+                type='text'
+                value={customJarUrl}
+                onChange={(e) => setCustomJarUrl(e.target.value)}
+                placeholder='https://your-cdn.com/custom_spider.jar'
+                className='flex-1 px-3 py-2 border border-purple-300 dark:border-purple-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500'
+              />
+              <button
+                type='button'
+                onClick={handleTestJar}
+                disabled={isTestingJar || !customJarUrl.trim()}
+                className='px-4 py-2 bg-purple-500 hover:bg-purple-600 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors whitespace-nowrap'
+              >
+                {isTestingJar ? '测试中...' : '测试 JAR'}
+              </button>
+            </div>
+
+            {/* JAR 测试结果 */}
+            {jarTestResult && (
+              <div className={`p-3 rounded-lg border ${
+                jarTestResult.success
+                  ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700'
+                  : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700'
+              }`}>
+                <div className='flex items-start gap-2 mb-2'>
+                  {jarTestResult.success ? (
+                    <CheckCircle className='w-5 h-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5' />
+                  ) : (
+                    <AlertCircle className='w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5' />
+                  )}
+                  <div className='flex-1'>
+                    <p className={`font-semibold text-sm ${
+                      jarTestResult.success
+                        ? 'text-green-900 dark:text-green-300'
+                        : 'text-red-900 dark:text-red-300'
+                    }`}>
+                      {jarTestResult.success ? '✅ 测试成功' : '❌ 测试失败'}
+                    </p>
+                    {jarTestResult.success && (
+                      <div className='mt-2 space-y-1 text-xs'>
+                        <div className='flex justify-between'>
+                          <span className='text-gray-600 dark:text-gray-400'>响应时间:</span>
+                          <span className='font-semibold text-gray-900 dark:text-white'>{jarTestResult.responseTime}ms</span>
+                        </div>
+                        {jarTestResult.size && (
+                          <div className='flex justify-between'>
+                            <span className='text-gray-600 dark:text-gray-400'>文件大小:</span>
+                            <span className='font-semibold text-gray-900 dark:text-white'>{Math.round(parseInt(jarTestResult.size) / 1024)}KB</span>
+                          </div>
+                        )}
+                        <div className='flex justify-between'>
+                          <span className='text-gray-600 dark:text-gray-400'>代理状态:</span>
+                          <span className='font-semibold text-gray-900 dark:text-white'>
+                            {jarTestResult.spiderSuccess === 'true' ? '✅ 成功' : '⚠️ 降级'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {jarTestResult.error && (
+                      <div className='mt-2 p-2 bg-red-100 dark:bg-red-900/30 rounded'>
+                        <span className='text-red-700 dark:text-red-300 text-xs'>{jarTestResult.error}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className='bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded p-3'>
+              <p className='text-xs text-blue-700 dark:text-blue-300'>
+                💡 <strong>提示：</strong>留空则使用默认 JAR 源。配置后，TVBox 将通过 <code className='bg-blue-100 dark:bg-blue-800 px-1 rounded'>/api/proxy/spider.jar?url=你的URL</code> 访问
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 

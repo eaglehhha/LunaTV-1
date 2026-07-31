@@ -33,6 +33,9 @@ export interface AIChatResponse {
     total_tokens: number;
   };
   recommendations?: MovieRecommendation[];
+  youtubeVideos?: any[];
+  videoLinks?: any[];
+  type?: string;
 }
 
 export interface AIRecommendHistory {
@@ -41,11 +44,29 @@ export interface AIRecommendHistory {
   response: string;
 }
 
+export function isAIRecommendFeatureDisabled(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const runtimeConfig = (window as any).RUNTIME_CONFIG;
+  return runtimeConfig?.AI_RECOMMEND_ENABLED === false;
+}
+
 /**
- * 发送AI推荐请求
+ * 发送AI推荐请求（支持流式响应）
  */
 export async function sendAIRecommendMessage(
-  messages: AIMessage[]
+  messages: AIMessage[],
+  context?: {
+    title?: string;
+    year?: string;
+    douban_id?: number;
+    tmdb_id?: number;
+    type?: 'movie' | 'tv';
+    currentEpisode?: number;
+  },
+  onStream?: (chunk: string) => void // 🔥 流式回调函数
 ): Promise<AIChatResponse> {
   const response = await fetch('/api/ai-recommend', {
     method: 'POST',
@@ -56,7 +77,9 @@ export async function sendAIRecommendMessage(
       messages: messages.map(msg => ({
         role: msg.role,
         content: msg.content
-      }))
+      })),
+      context, // 🔥 传递视频上下文
+      stream: !!onStream, // 🔥 如果有回调函数，启用流式
     }),
   });
 
@@ -70,6 +93,74 @@ export async function sendAIRecommendMessage(
     }));
   }
 
+  // 🔥 流式响应处理
+  if (onStream && response.body) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullContent = '';
+    let youtubeVideos: any[] = [];
+    let videoLinks: any[] = [];
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+
+            if (data === '[DONE]') {
+              break;
+            }
+
+            try {
+              const json = JSON.parse(data);
+
+              // 处理文本流
+              if (json.text) {
+                fullContent += json.text;
+                onStream(json.text); // 回调每个chunk
+              }
+
+              // 🎥 处理YouTube视频数据
+              if (json.type === 'youtube_data' && json.youtubeVideos) {
+                youtubeVideos = json.youtubeVideos;
+                console.log('✅ 收到YouTube视频数据:', youtubeVideos.length, '个视频');
+              }
+
+              // 🔗 处理视频链接数据
+              if (json.type === 'video_links' && json.videoLinks) {
+                videoLinks = json.videoLinks;
+                console.log('✅ 收到视频链接数据:', videoLinks.length, '个链接');
+              }
+            } catch (e) {
+              console.error('解析SSE数据失败:', e);
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    // 返回完整响应（兼容原有格式，包含YouTube数据）
+    return {
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: fullContent
+        }
+      }],
+      youtubeVideos,
+      videoLinks
+    } as AIChatResponse;
+  }
+
+  // 非流式响应（保持原有逻辑）
   return response.json();
 }
 
@@ -99,6 +190,10 @@ export async function getAIRecommendHistory(): Promise<{
  * 检查AI推荐功能是否可用
  */
 export async function checkAIRecommendAvailable(): Promise<boolean> {
+  if (isAIRecommendFeatureDisabled()) {
+    return false;
+  }
+
   try {
     const response = await fetch('/api/ai-recommend', {
       method: 'POST',
@@ -248,14 +343,19 @@ export function formatAIResponseWithLinks(
   // 处理粗体
   formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900 dark:text-gray-100">$1</strong>');
   
-  // 处理数字列表
-  formatted = formatted.replace(/^\d+[.、]\s*(.*)$/gim, '<div class="ml-4 mb-2 text-gray-800 dark:text-gray-200">• $1</div>');
+  // 处理数字列表 - 先匹配整行包括换行符
+  formatted = formatted.replace(/^\d+[.、]\s*(.*?)(?=\n|$)/gim, '<div class="ml-4 text-gray-800 dark:text-gray-200">• $1</div>');
   
-  // 处理普通列表
-  formatted = formatted.replace(/^[-•]\s*(.*)$/gim, '<div class="ml-4 mb-2 text-gray-800 dark:text-gray-200">• $1</div>');
+  // 处理普通列表 - 先匹配整行包括换行符
+  formatted = formatted.replace(/^[-•]\s*(.*?)(?=\n|$)/gim, '<div class="ml-4 text-gray-800 dark:text-gray-200">• $1</div>');
   
-  // 处理换行
-  formatted = formatted.replace(/\n\n/g, '<br><br>');
+  // 清理列表项之间多余的换行符
+  formatted = formatted.replace(/(<\/div>)\n+(?=<div class="ml-4)/g, '$1');
+  
+  // 处理段落分隔
+  formatted = formatted.replace(/\n\n+/g, '<br><br>');
+  
+  // 处理剩余的单换行
   formatted = formatted.replace(/\n/g, '<br>');
   
   return formatted;

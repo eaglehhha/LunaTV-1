@@ -1,6 +1,57 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@import '../styles/artplayer-hints.css';
+@import '../styles/artplayer-controls.css';
+@import '../styles/artplayer-mobile.css';
+@import '../styles/artplayer-liquid-glass.css';
+@import '../styles/artplayer-range-slider.css';
+@import '../styles/artplayer-fullscreen-title.css';
+
+/* Tailwind 4 Dark Mode Configuration - 使用 class 选择器而非媒体查询 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================
+   @property - 注册自定义属性支持动画
+   这是 Tailwind CSS 4.0 的新特性，提升性能
+   ============================================ */
+@property --shimmer-position {
+  syntax: '<percentage>';
+  initial-value: -200%;
+  inherits: false;
+}
+
+/* Tailwind 4 Theme Configuration */
+@theme {
+  /* Font Family */
+  --font-primary:
+    'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+  /* Primary Colors */
+  --color-primary-50: #f0f9ff;
+  --color-primary-100: #e0f2fe;
+  --color-primary-200: #bae6fd;
+  --color-primary-300: #7dd3fc;
+  --color-primary-400: #38bdf8;
+  --color-primary-500: #0ea5e9;
+  --color-primary-600: #0284c7;
+  --color-primary-700: #0369a1;
+  --color-primary-800: #075985;
+  --color-primary-900: #0c4a6e;
+  --color-dark: #222222;
+
+  /* 修复 Tailwind 4 亮色模式下灰色过淡的问题，恢复高对比度灰色 */
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+  --color-gray-950: #030712;
+}
 
 @layer utilities {
   .scrollbar-hide {
@@ -10,6 +61,48 @@
 
   .scrollbar-hide::-webkit-scrollbar {
     display: none; /* Chrome, Safari and Opera */
+  }
+
+  /* 源浏览器动画 */
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* 弹窗淡入动画 */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* 弹窗缩放进入动画 */
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .animate-fadeIn {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .animate-scaleIn {
+    animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
 }
 
@@ -23,6 +116,8 @@ body {
   overflow-x: hidden;
   /* 阻止 iOS Safari 拉动回弹 */
   overscroll-behavior: none;
+  /* iOS Safari 平滑惯性滚动 */
+  -webkit-overflow-scrolling: touch;
 }
 
 body {
@@ -93,17 +188,20 @@ html:not(.dark) body {
   }
 }
 
-/* 隐藏所有滚动条（兼容 WebKit、Firefox、IE/Edge） */
-* {
+/* 隐藏所有滚动条（兼容 WebKit、Firefox、IE/Edge）- 排除ArtPlayer */
+*:not(.artplayer):not(.artplayer *) {
   -ms-overflow-style: none; /* IE & Edge */
   scrollbar-width: none; /* Firefox */
 }
 
-*::-webkit-scrollbar {
+*:not(.artplayer):not(.artplayer *)::-webkit-scrollbar {
   display: none; /* Chrome, Safari, Opera */
 }
 
-/* View Transitions API 动画 */
+/* ============================================
+   View Transitions API 动画
+   优化：0.8s → 0.6s (更流畅的过渡体验)
+   ============================================ */
 @keyframes slide-from-top {
   from {
     clip-path: polygon(0 0, 100% 0, 100% 0, 0 0);
@@ -124,7 +222,7 @@ html:not(.dark) body {
 
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 0.8s;
+  animation-duration: 0.6s; /* 优化：从 0.8s 减少到 0.6s */
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   animation-fill-mode: both;
 }
@@ -153,26 +251,25 @@ div[data-media-provider] video {
   object-fit: contain;
 }
 
-.art-poster {
-  background-size: contain !important; /* 使图片完整展示 */
-  background-position: center center !important; /* 居中显示 */
-  background-repeat: no-repeat !important; /* 防止重复 */
-  background-color: #000 !important; /* 其余区域填充为黑色 */
+/* VideoCard 光泽扫过动画 - 使用 @property 优化 */
+@keyframes card-shimmer {
+  to {
+    --shimmer-position: 200%;
+  }
 }
 
-/* 隐藏移动端竖屏时的 pip 按钮 */
-@media (max-width: 768px) {
-  .art-control-pip {
-    display: none !important;
+/* Netflix风格进度条闪烁动画 */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
   }
+  100% {
+    transform: translateX(100%);
+  }
+}
 
-  .art-control-fullscreenWeb {
-    display: none !important;
-  }
-
-  .art-control-volume {
-    display: none !important;
-  }
+.animate-shimmer {
+  animation: shimmer 2s infinite;
 }
 
 /* 平滑动画效果 */
@@ -194,4 +291,203 @@ div[data-media-provider] video {
 /* 状态过渡动画 */
 .smooth-transition {
   transition: all 0.3s ease-in-out;
+}
+
+/* 移动端隐藏弹幕配置按钮 - 使用设置面板简化配置 */
+/* 桌面端保留完整配置按钮 - 提供更多高级选项 */
+@media (max-width: 1080px), (hover: none) {
+  .artplayer-plugin-danmuku .apd-config {
+    display: none !important;
+  }
+}
+
+/* 修复桌面端弹幕配置弹窗hover不稳定问题 */
+@media (min-width: 1081px) and (hover: hover) {
+  /* 扩大按钮的实际hover区域，但不影响视觉 */
+  .artplayer-plugin-danmuku .apd-config {
+    position: relative;
+    padding: 3px; /* 增加一点内边距扩大hover区域 */
+  }
+
+  /* 按钮或面板hover时都显示面板 */
+  .artplayer-plugin-danmuku .apd-config:hover .apd-config-panel,
+  .artplayer-plugin-danmuku .apd-config .apd-config-panel:hover {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    visibility: visible !important;
+    transition: opacity 0.15s ease 0.1s !important; /* 添加0.1s显示延迟 */
+  }
+
+  /* 确保面板默认状态是隐藏的，隐藏时有延迟 */
+  .artplayer-plugin-danmuku .apd-config-panel {
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.15s ease 0.3s, visibility 0s ease 0.45s; /* 0.3s隐藏延迟 */
+  }
+
+  /* 面板内部元素在显示时可交互 */
+  .artplayer-plugin-danmuku .apd-config-panel * {
+    pointer-events: auto;
+  }
+
+  /* 防止进度条拖拽时弹窗干扰 */
+  .artplayer[data-dragging="true"] .artplayer-plugin-danmuku .apd-config-panel {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
+    transition: none !important;
+  }
+}
+
+/* 亮色模式文字颜色强制覆盖 - 修复 Tailwind 4 OKLCH 灰色过淡问题 */
+html:not(.dark) {
+  /* 覆盖 Tailwind 4 OKLCH 灰色，使用传统高对比度 HEX 值 */
+  --tw-text-opacity: 1;
+}
+
+/* 强制使用深色文字 - 确保亮色模式下可读性 */
+html:not(.dark) .text-gray-900 {
+  color: #111827 !important;
+}
+
+html:not(.dark) .text-gray-800 {
+  color: #1f2937 !important;
+}
+
+html:not(.dark) .text-gray-700 {
+  color: #374151 !important;
+}
+
+html:not(.dark) .text-gray-600 {
+  color: #4b5563 !important;
+}
+
+html:not(.dark) .text-gray-500 {
+  color: #6b7280 !important;
+}
+
+html:not(.dark) .text-slate-900 {
+  color: #0f172a !important;
+}
+
+html:not(.dark) .text-slate-800 {
+  color: #1e293b !important;
+}
+
+html:not(.dark) .text-slate-700 {
+  color: #334155 !important;
+}
+
+html:not(.dark) .text-slate-600 {
+  color: #475569 !important;
+}
+
+html:not(.dark) .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* 亮色模式背景颜色强制覆盖 */
+html:not(.dark) .bg-slate-50 {
+  background-color: #f8fafc !important;
+}
+
+html:not(.dark) .bg-slate-100 {
+  background-color: #f1f5f9 !important;
+}
+
+html:not(.dark) .border-slate-200 {
+  border-color: #e2e8f0 !important;
+}
+
+html:not(.dark) .from-slate-50 {
+  --tw-gradient-from: #f8fafc !important;
+}
+
+html:not(.dark) .to-slate-100 {
+  --tw-gradient-to: #f1f5f9 !important;
+}
+
+html:not(.dark) .hover\:bg-slate-100:hover {
+  background-color: #f1f5f9 !important;
+}
+
+html:not(.dark) .hover\:bg-slate-50:hover {
+  background-color: #f8fafc !important;
+}
+
+/* ============================================
+   Backdrop Filter Fallback for Old Browsers
+   修复旧版手机系统（Android <5.0, iOS <9.3）不支持backdrop-filter的问题
+   为不支持的浏览器提供更不透明的纯色背景
+   ============================================ */
+
+/* 检测不支持backdrop-filter的浏览器，提供fallback背景 */
+@supports not (backdrop-filter: blur(1px)) {
+  /* 白色半透明背景的fallback - 提高不透明度确保可读性 */
+  .backdrop-blur,
+  .backdrop-blur-sm,
+  .backdrop-blur-md,
+  .backdrop-blur-lg,
+  .backdrop-blur-xl,
+  .backdrop-blur-2xl,
+  .backdrop-blur-3xl {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+  }
+
+  /* 深色模式下的fallback */
+  .dark .backdrop-blur,
+  .dark .backdrop-blur-sm,
+  .dark .backdrop-blur-md,
+  .dark .backdrop-blur-lg,
+  .dark .backdrop-blur-xl,
+  .dark .backdrop-blur-2xl,
+  .dark .backdrop-blur-3xl {
+    background-color: rgba(24, 24, 27, 0.95) !important; /* zinc-900 */
+  }
+
+  /* 处理带有透明度的背景色 + backdrop-blur组合 */
+  /* 例如: bg-white/80 backdrop-blur */
+  [class*="bg-white/"] {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+  }
+
+  [class*="bg-zinc-"][class*="/"] {
+    background-color: rgba(24, 24, 27, 0.95) !important;
+  }
+
+  [class*="bg-gray-"][class*="/"] {
+    background-color: rgba(31, 41, 55, 0.95) !important;
+  }
+
+  /* 渐变背景的fallback - 登录页面主卡片 */
+  .from-white\/95.backdrop-blur-2xl,
+  .from-white\/85.backdrop-blur-2xl,
+  .from-white\/75.backdrop-blur-2xl {
+    background: rgba(255, 255, 255, 0.98) !important;
+  }
+
+  .dark .from-zinc-900\/95.backdrop-blur-2xl,
+  .dark .from-zinc-900\/85.backdrop-blur-2xl,
+  .dark .from-zinc-900\/75.backdrop-blur-2xl {
+    background: rgba(24, 24, 27, 0.98) !important;
+  }
+}
+
+/* ============================================
+   Translation Warning Toast Animation
+   ============================================ */
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.3s ease-out forwards;
 }
