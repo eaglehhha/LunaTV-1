@@ -1650,8 +1650,9 @@ function LivePageClient() {
       const load = this.load.bind(this);
       this.load = function (context: any, config: any, callbacks: any) {
         // 所有的请求都带一个 source 参数
+        // 代理返回的播放列表使用站内相对地址，这里补上 origin 再解析
         try {
-          const url = new URL(context.url);
+          const url = new URL(context.url, window.location.origin);
           url.searchParams.set('moontv-source', currentSourceRef.current?.key || '');
           context.url = url.toString();
         } catch (error) {
@@ -1668,7 +1669,7 @@ function LivePageClient() {
           if (isLiveDirectConnect) {
             // 浏览器直连，使用 URL 对象处理参数
             try {
-              const url = new URL(context.url);
+              const url = new URL(context.url, window.location.origin);
               url.searchParams.set('allowCORS', 'true');
               context.url = url.toString();
             } catch (error) {
